@@ -1,0 +1,10 @@
+/* Reduced motion */
+@layer components {
+  /* ---------- reduced motion ---------- */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+    .js [data-focus], .js [data-words] .w, .js .step { opacity: 1; filter: none; transform: none; }
+    .pupil__track { display: none; }
+    .pupil__after { padding-top: var(--sp); }
+  }
+}

@@ -1,0 +1,32 @@
+@import "tailwindcss";
+
+/* The design system, in the order of the original stylesheet. */
+@import "../styles/base.css";
+@import "../styles/buttons.css";
+@import "../styles/header.css";
+@import "../styles/motion.css";
+@import "../styles/home.css";
+@import "../styles/frames.css";
+@import "../styles/footer.css";
+@import "../styles/shop.css";
+@import "../styles/product.css";
+@import "../styles/forms.css";
+@import "../styles/pages.css";
+@import "../styles/overlays.css";
+@import "../styles/mirror.css";
+@import "../styles/reduced-motion.css";
+
+/* Design tokens exposed to Tailwind utilities (bg-clinic, text-ink-3, font-serif, ease-brand, …). */
+@theme inline {
+  --color-white: var(--white);
+  --color-black: var(--black);
+  --color-clinic: var(--clinic);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-line: var(--line);
+  --color-line-2: var(--line-2);
+  --font-serif: var(--serif);
+  --font-sans: var(--sans);
+  --ease-brand: var(--ease);
+  --ease-brand-io: var(--ease-io);
+}

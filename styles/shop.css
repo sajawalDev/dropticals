@@ -1,0 +1,50 @@
+/* Shop: toolbar, filters and the mobile filter sheet */
+@layer components {
+  /* ---------- shop ---------- */
+  .shop { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: clamp(28px, 4vw, 64px); padding-bottom: var(--sp); }
+  .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
+  .seg { display: inline-flex; padding: 3px; border: 1.5px solid var(--black); border-radius: 999px; }
+  .seg button { height: 38px; padding: 0 18px; border-radius: 999px; font-weight: 600; font-size: .875rem; transition: background .2s, color .2s; }
+  .seg button[aria-pressed="true"] { background: var(--black); color: var(--white); }
+  .toolbar__right { display: flex; gap: 10px; align-items: center; }
+  .select { position: relative; }
+  .select select { appearance: none; -webkit-appearance: none; height: 44px; padding: 0 40px 0 16px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--white); font-weight: 500; font-size: .875rem; cursor: pointer; }
+  .select svg { position: absolute; right: 14px; top: 50%; width: 14px; height: 14px; transform: translateY(-50%); pointer-events: none; }
+  .filters { position: sticky; top: calc(var(--head-h) + 24px); align-self: start; display: grid; gap: 30px; max-height: calc(100vh - var(--head-h) - 48px); overflow-y: auto; scrollbar-width: thin; padding-right: 6px; }
+  .fgroup h3 { font: 600 .875rem/1.4 var(--sans); margin-bottom: 12px; display: flex; justify-content: space-between; }
+  .fgroup h3 button { font-weight: 500; color: var(--ink-3); font-size: .8125rem; text-decoration: underline; text-underline-offset: 3px; }
+  .check { display: flex; align-items: center; gap: 12px; width: 100%; padding: 7px 0; font-size: .9375rem; text-align: left; }
+  .check__box { width: 20px; height: 20px; border-radius: 6px; border: 1.5px solid var(--black); display: grid; place-items: center; flex: none; transition: background .2s; }
+  .check__box svg { width: 12px; height: 12px; opacity: 0; color: var(--white); }
+  .check[aria-pressed="true"] .check__box { background: var(--black); }
+  .check[aria-pressed="true"] .check__box svg { opacity: 1; }
+  .check__icon { width: 34px; height: 16px; flex: none; }
+  .check__icon svg { width: 100%; height: 100%; }
+  .check em { font-style: normal; color: var(--ink-3); margin-left: auto; font-size: .8125rem; }
+  .check .sw { width: 20px; height: 20px; flex: none; }
+  .faces { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line-2); font-size: .8125rem; font-weight: 600; transition: .2s; }
+  .chip:hover { border-color: var(--black); }
+  .chip[aria-pressed="true"], .chip[aria-checked="true"] { background: var(--black); color: var(--white); border-color: var(--black); }
+  .face-tip { font-size: .8125rem; color: var(--ink-2); margin-top: 10px; }
+  .filter-open { display: none; }
+  .empty { display: grid; justify-items: start; gap: 16px; padding: 64px 0; }
+  .result-count { font-size: .875rem; color: var(--ink-3); }
+  .sheet-head { display: none; }
+  @media (max-width: 1000px) {
+    .shop { grid-template-columns: 1fr; }
+    .filter-open { display: inline-flex; }
+    .filters {
+      position: fixed; inset: auto 0 0 0; top: auto; z-index: 130; max-height: 86vh; background: var(--white);
+      border-radius: 24px 24px 0 0; padding: 0 var(--gutter) 24px; transform: translateY(105%); transition: transform .45s var(--ease);
+      box-shadow: 0 -20px 60px rgba(0, 0, 0, .18); gap: 24px;
+    }
+    .filters { visibility: hidden; transition: transform .45s var(--ease), visibility 0s .45s; }
+    .filters.open { transform: none; visibility: visible; transition: transform .45s var(--ease); }
+    .sheet-head { display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; background: var(--white); padding: 18px 0 12px; z-index: 1; border-bottom: 1px solid var(--line); }
+    .sheet-apply { position: sticky; bottom: 0; background: var(--white); padding-top: 12px; }
+  }
+  @media (min-width: 1001px) { .sheet-apply { display: none; } }
+  .scrim { position: fixed; inset: 0; z-index: 125; background: rgba(0, 0, 0, .35); opacity: 0; visibility: hidden; transition: opacity .3s, visibility 0s .3s; }
+  .scrim.show { opacity: 1; visibility: visible; transition: opacity .3s; }
+}

@@ -1,0 +1,72 @@
+/* =========================================================
+   Dr's Opticals — design system
+   Coat white, ink black. Bodoni Moda for display, Montserrat
+   for everything you read and press.
+   ========================================================= */
+@layer base {
+  :root {
+    --white: #ffffff;
+    --clinic: #f3f4f4;
+    --black: #000000;
+    --ink-2: #3d3d3d;
+    --ink-3: #6e6e6e;
+    --line: rgba(0, 0, 0, .12);
+    --line-2: rgba(0, 0, 0, .24);
+    --serif: var(--font-bodoni), 'Didot', 'Bodoni 72', Georgia, serif;
+    --sans: var(--font-montserrat), 'Helvetica Neue', Arial, sans-serif;
+    --fs-display: clamp(3rem, 1.4rem + 5.6vw, 7rem);
+    --fs-h1: clamp(2.75rem, 1.6rem + 4vw, 5.75rem);
+    --fs-h2: clamp(2.25rem, 1.35rem + 3.2vw, 4.5rem);
+    --fs-h3: clamp(1.5rem, 1.15rem + 1.2vw, 2.25rem);
+    --fs-lead: clamp(1.0625rem, .98rem + .38vw, 1.3125rem);
+    --gutter: clamp(16px, 4vw, 56px);
+    --max: 1360px;
+    --sp: clamp(80px, 10vw, 160px);
+    --ease: cubic-bezier(.2, .7, .1, 1);
+    --ease-io: cubic-bezier(.65, 0, .35, 1);
+    --head-h: 76px;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; scroll-padding-top: 120px; }
+  body {
+    margin: 0; background: var(--white); color: var(--black);
+    font: 400 1rem/1.65 var(--sans); overflow-x: clip;
+    -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility;
+  }
+  img, svg, canvas, video { display: block; max-width: 100%; }
+  a { color: inherit; text-decoration: none; }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+  input, select, textarea { font: inherit; color: inherit; }
+  h1, h2, h3, h4 { margin: 0; font-weight: 500; }
+  p { margin: 0; }
+  ul, ol { margin: 0; padding: 0; list-style: none; }
+  ::selection { background: var(--black); color: var(--white); }
+  :focus-visible { outline: 2px solid var(--black); outline-offset: 3px; border-radius: 6px; }
+  .on-dark :focus-visible, .mirror :focus-visible { outline-color: var(--white); }
+}
+
+@layer components {
+  .sr-only { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+  .skip { position: absolute; left: 12px; top: -60px; z-index: 300; background: var(--black); color: var(--white); padding: 12px 18px; border-radius: 999px; font-weight: 600; }
+  .skip:focus { top: 12px; }
+
+  .wrap { width: 100%; max-width: var(--max); margin-inline: auto; padding-inline: var(--gutter); }
+  .serif { font-family: var(--serif); font-optical-sizing: auto; }
+  .display { font: 500 var(--fs-display)/.94 var(--serif); letter-spacing: -.02em; font-optical-sizing: auto; }
+  .h1 { font: 500 var(--fs-h1)/.98 var(--serif); letter-spacing: -.018em; font-optical-sizing: auto; }
+  .h2 { font: 500 var(--fs-h2)/1.02 var(--serif); letter-spacing: -.015em; font-optical-sizing: auto; }
+  .h3 { font: 500 var(--fs-h3)/1.1 var(--serif); letter-spacing: -.01em; font-optical-sizing: auto; }
+  .lead { font-size: var(--fs-lead); line-height: 1.55; color: var(--ink-2); max-width: 36em; }
+  .muted { color: var(--ink-3); }
+  .small { font-size: .875rem; line-height: 1.55; }
+  .tnum { font-variant-numeric: tabular-nums; }
+  .measure { max-width: 62ch; }
+  .section { padding-block: var(--sp); }
+  .section--clinic { background: var(--clinic); }
+  .on-dark { background: var(--black); color: var(--white); }
+  .on-dark .lead, .on-dark .muted { color: rgba(255, 255, 255, .7); }
+
+  .hero .wrap > *, .finder > *, .promo > *, .two > *, .pdp > *, .bag > *, .steps > *, .clinic-teaser > *, .rx-card > *, .mark-story > *, .shop > *, .foot__top > * { min-width: 0; }
+  .finder__art { width: 100%; }
+  .finder__stage, .hero__copy, .promo__copy, .pdp__info, .clinic-teaser__copy, .foot__brand, .item, .item__body, .trial, .steps__intro, .shot__card, .mirror__msg { grid-template-columns: minmax(0, 1fr); }
+}

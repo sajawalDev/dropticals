@@ -1,0 +1,61 @@
+/* Buttons and the Frame My Face camera button */
+@layer components {
+  /* ---------- buttons ---------- */
+  .btn {
+    --h: 52px;
+    display: inline-flex; align-items: center; justify-content: center; gap: .65em;
+    height: var(--h); padding: 0 26px; border-radius: 999px;
+    font: 600 .9375rem/1 var(--sans); letter-spacing: .005em; white-space: nowrap;
+    background: var(--black); color: var(--white); border: 1.5px solid var(--black);
+    transition: background .25s var(--ease), color .25s var(--ease), border-color .25s, transform .2s var(--ease);
+  }
+  .btn:hover { background: var(--white); color: var(--black); }
+  .btn:active { transform: scale(.98); }
+  .btn svg { width: 18px; height: 18px; flex: none; }
+  .btn--ghost { background: transparent; color: var(--black); }
+  .btn--ghost:hover { background: var(--black); color: var(--white); }
+  .btn--white { background: var(--white); color: var(--black); border-color: var(--white); }
+  .btn--white:hover { background: transparent; color: var(--white); }
+  .btn--line-white { background: transparent; color: var(--white); border-color: rgba(255, 255, 255, .55); }
+  .btn--line-white:hover { background: var(--white); color: var(--black); border-color: var(--white); }
+  .btn--sm { --h: 40px; padding: 0 18px; font-size: .8125rem; }
+  .btn--block { width: 100%; }
+  .btn[disabled], .btn[aria-disabled="true"] { opacity: .32; pointer-events: none; }
+  .link { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 4px; font-weight: 600; }
+  .link:hover { text-decoration-thickness: 2px; }
+
+  /* Frame My Face — the camera button on every frame */
+  .fmf {
+    position: relative; display: inline-flex; align-items: center; gap: 10px;
+    height: 46px; padding: 0 18px 0 6px; border-radius: 999px;
+    background: var(--black); color: var(--white); border: 1.5px solid var(--black);
+    font: 600 .875rem/1 var(--sans); letter-spacing: .01em; white-space: nowrap;
+    transition: background .25s var(--ease), color .25s var(--ease), transform .2s var(--ease);
+  }
+  .fmf__icon {
+    position: relative; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%;
+    background: var(--white); color: var(--black); flex: none; transition: transform .35s var(--ease);
+  }
+  .fmf__icon svg { width: 18px; height: 18px; }
+  .fmf__icon::after {
+    content: ''; position: absolute; top: 3px; right: 3px; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--black); box-shadow: 0 0 0 2px var(--white); animation: livePulse 2.4s var(--ease) infinite;
+  }
+  .fmf:hover { background: var(--white); color: var(--black); }
+  .fmf:hover .fmf__icon { background: var(--black); color: var(--white); transform: rotate(-8deg) scale(1.06); }
+  .fmf:hover .fmf__icon::after { background: var(--white); box-shadow: 0 0 0 2px var(--black); }
+  .fmf--ghost { background: transparent; color: var(--black); }
+  .fmf--ghost .fmf__icon { background: var(--black); color: var(--white); }
+  .fmf--ghost .fmf__icon::after { background: var(--white); box-shadow: 0 0 0 2px var(--black); }
+  .fmf--ghost:hover { background: var(--black); color: var(--white); }
+  .fmf--ghost:hover .fmf__icon { background: var(--white); color: var(--black); }
+  .fmf--ghost:hover .fmf__icon::after { background: var(--black); box-shadow: 0 0 0 2px var(--white); }
+  .fmf--lg { height: 56px; padding-right: 24px; font-size: .9375rem; }
+  .fmf--lg .fmf__icon { width: 42px; height: 42px; }
+  .fmf--white { background: var(--white); color: var(--black); border-color: var(--white); }
+  .fmf--white .fmf__icon { background: var(--black); color: var(--white); }
+  .fmf--white .fmf__icon::after { background: var(--white); box-shadow: 0 0 0 2px var(--black); }
+  .fmf--white:hover { background: transparent; color: var(--white); }
+  .fmf--white:hover .fmf__icon { background: var(--white); color: var(--black); }
+  @keyframes livePulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(.55); opacity: .55; } }
+}

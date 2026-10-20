@@ -1,0 +1,22 @@
+/* Eyelid overlay and focus-pull reveals */
+@layer components {
+  /* ---------- eyelid overlay (intro + page blink) ---------- */
+  .lids { position: fixed; inset: 0; z-index: 400; pointer-events: none; background: var(--black); }
+  .lids.ready { background: none; }
+  #app:focus, h1:focus { outline: none; }
+  .lids svg { width: 100%; height: 100%; }
+  .lids__mark { position: absolute; left: 50%; top: 50%; width: 112px; transform: translate(-50%, -50%); color: var(--white); transition: opacity .35s, transform .6s var(--ease); }
+  .lids.is-done { display: none; }
+  /* Set before first paint when the intro has already played this session. */
+  .no-intro .lids:not(.ready) { display: none; }
+
+  /* ---------- focus-pull reveal ---------- */
+  .js [data-focus] {
+    opacity: 0; filter: blur(10px); transform: translateY(14px);
+    transition: opacity 1s var(--ease), filter 1s var(--ease), transform 1s var(--ease);
+    transition-delay: calc(var(--i, 0) * 80ms);
+  }
+  .js [data-focus].in { opacity: 1; filter: blur(0); transform: none; }
+  .js [data-words] .w { display: inline-block; opacity: 0; filter: blur(9px); transform: translateY(.18em); transition: opacity .9s var(--ease), filter .9s var(--ease), transform .9s var(--ease); transition-delay: calc(var(--i, 0) * 55ms); }
+  .js [data-words].in .w { opacity: 1; filter: blur(0); transform: none; }
+}
