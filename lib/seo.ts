@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { CONFIG, SITE } from './config';
-import { FINISHES, GENDER_LABEL, MATERIALS, SHAPES, type Product } from './catalog';
+import { GENDER_LABEL, finishOf, type Product } from './catalog';
 
 export const absoluteUrl = (path = '/') => (path === '/' ? SITE.url : SITE.url + path);
 
@@ -45,11 +45,11 @@ export function pageMetadata({ title, description, path, absoluteTitle, noindex,
 
 /* ---------- structured data ---------- */
 
-const orgId = `${SITE.url}/#optician`;
+const orgId = `${SITE.url}/#store`;
 
 export const organizationLd = {
   '@context': 'https://schema.org',
-  '@type': 'Optician',
+  '@type': 'Store',
   '@id': orgId,
   name: CONFIG.legalName,
   alternateName: CONFIG.brand,
@@ -95,19 +95,19 @@ export const productLd = (p: Product) => ({
   '@context': 'https://schema.org',
   '@type': 'Product',
   '@id': absoluteUrl(`/frame/${p.id}`),
-  name: `${p.name} ${SHAPES[p.shape].label} eyeglasses`,
+  name: `${p.name} ${p.labels.shape} eyeglasses`,
   description: p.desc,
-  sku: p.code,
-  mpn: p.code,
-  image: absoluteUrl(`/frame/${p.id}/opengraph-image`),
+  sku: p.code || undefined,
+  mpn: p.code || undefined,
+  image: [...p.images.map(i => i.url), absoluteUrl(`/frame/${p.id}/opengraph-image`)],
   url: absoluteUrl(`/frame/${p.id}`),
   brand: { '@type': 'Brand', name: CONFIG.brand },
-  category: 'Eyeglasses',
-  material: MATERIALS[p.material].label,
-  color: p.finishes.map(f => FINISHES[f].label).join(', '),
+  category: p.labels.category ?? 'Eyeglasses',
+  material: p.labels.material || undefined,
+  color: p.finishes.map(f => finishOf(p, f).label).join(', ') || undefined,
   audience: p.gender === 'unisex' ? undefined : { '@type': 'PeopleAudience', suggestedGender: p.gender === 'men' ? 'male' : 'female' },
   additionalProperty: [
-    { '@type': 'PropertyValue', name: 'Shape', value: SHAPES[p.shape].label },
+    { '@type': 'PropertyValue', name: 'Shape', value: p.labels.shape },
     { '@type': 'PropertyValue', name: 'For', value: GENDER_LABEL[p.gender] },
     { '@type': 'PropertyValue', name: 'Lens width', value: p.A, unitCode: 'MMT' },
     { '@type': 'PropertyValue', name: 'Bridge', value: p.D, unitCode: 'MMT' },
@@ -119,7 +119,7 @@ export const productLd = (p: Product) => ({
     url: absoluteUrl(`/frame/${p.id}`),
     price: p.price,
     priceCurrency: CONFIG.currencyCode,
-    availability: 'https://schema.org/InStock',
+    availability: p.inStock ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
     itemCondition: 'https://schema.org/NewCondition',
     seller: { '@id': orgId },
   },

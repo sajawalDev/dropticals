@@ -1,4 +1,4 @@
-import { LOGO_EMBLEM, LOGO_FULL_BOX, LOGO_RULE, LOGO_TAG, LOGO_WORD } from './logo';
+import { LOGO_EMBLEM, LOGO_RULE, LOGO_SHOP_BOX, LOGO_WORD } from './logo';
 
 /* Helpers for the generated share images (opengraph-image, apple-icon). */
 
@@ -8,10 +8,10 @@ export const OG_SIZE = { width: 1200, height: 630 };
 export const svgDataUri = (viewBox: string, inner: string) =>
   `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}">${inner}</svg>`)}`;
 
-/** The full logo lockup in a colour, as an <img> source, with its aspect ratio. */
+/** The logo lockup (without the clinic tagline) in a colour, as an <img> source, with its aspect ratio. */
 export function logoFullImage(color: string) {
-  const [x, y, w, h] = LOGO_FULL_BOX;
-  const d = LOGO_EMBLEM.d + LOGO_RULE.d + LOGO_WORD.d + LOGO_TAG.d;
+  const [x, y, w, h] = LOGO_SHOP_BOX;
+  const d = LOGO_EMBLEM.d + LOGO_RULE.d + LOGO_WORD.d;
   return { src: svgDataUri(`${x - 2} ${y - 2} ${w + 4} ${h + 4}`, `<path fill="${color}" fill-rule="evenodd" d="${d}"/>`), ratio: (w + 4) / (h + 4) };
 }
 

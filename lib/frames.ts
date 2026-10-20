@@ -1,6 +1,6 @@
 import {
-  FINISHES, MATERIALS, SHAPES,
-  type Finish, type FinishKey, type Material, type MaterialKey, type Product, type ShapeKey,
+  FINISHES, MATERIALS, SHAPES, finishOf,
+  type BaseMaterial, type BaseShape, type Finish, type Material, type Product,
 } from './catalog';
 
 /* =========================================================
@@ -22,7 +22,7 @@ function se(t: number, nTop: number, nBot: number): Pt {
   return [Math.sign(c) * Math.pow(Math.abs(c), 2 / n), Math.sign(s) * Math.pow(Math.abs(s), 2 / n)];
 }
 
-const SHAPE_FN: Record<ShapeKey, (t: number) => Pt> = {
+const SHAPE_FN: Record<BaseShape, (t: number) => Pt> = {
   round: t => se(t, 2, 2),
   oval: t => se(t, 2.3, 2.2),
   square: t => se(t, 3.7, 3.4),
@@ -59,8 +59,8 @@ const SHAPE_FN: Record<ShapeKey, (t: number) => Pt> = {
   },
 };
 
-const unitCache: Partial<Record<ShapeKey, Pt[]>> = {};
-export function unitContour(shape: ShapeKey): Pt[] {
+const unitCache: Partial<Record<BaseShape, Pt[]>> = {};
+export function unitContour(shape: BaseShape): Pt[] {
   const cached = unitCache[shape];
   if (cached) return cached;
   const fn = SHAPE_FN[shape] || SHAPE_FN.round;
@@ -129,8 +129,8 @@ export interface GeomSpec {
   A: number;
   B: number;
   D: number;
-  material: MaterialKey;
-  shape: ShapeKey;
+  material: BaseMaterial;
+  shape: BaseShape;
   hinge?: number;
 }
 
@@ -199,24 +199,25 @@ export function buildGeom(unit: Pt[], spec: GeomSpec): FrameGeom {
   };
 }
 
-export type GeomSource = Pick<Product, 'shape'> & Partial<Pick<Product, 'id' | 'A' | 'B' | 'D' | 'material'>>;
+/** What the geometry needs: how the frame is drawn, and its sizes (the shape's defaults when missing). */
+export type GeomSource = Pick<Product, 'look'> & Partial<Pick<Product, 'A' | 'B' | 'D'>>;
 
 const geomCache = new Map<string, FrameGeom>();
 export function geomFor(p: GeomSource): FrameGeom {
-  const key = p.id || `${p.shape}-${p.A}-${p.B}-${p.D}-${p.material}`;
+  const { shape, material } = p.look;
+  const s = SHAPES[shape] ?? SHAPES.round;
+  const A = p.A ?? s.A, B = p.B ?? s.B, D = p.D ?? s.D;
+  const key = `${shape}|${material}|${A}|${B}|${D}`;
   const cached = geomCache.get(key);
   if (cached) return cached;
-  const s = SHAPES[p.shape];
-  const g = buildGeom(unitContour(p.shape), {
-    A: p.A ?? s.A, B: p.B ?? s.B, D: p.D ?? s.D, material: p.material || 'acetate', shape: p.shape, hinge: s.hinge,
-  });
+  const g = buildGeom(unitContour(shape), { A, B, D, material, shape, hinge: s.hinge });
   geomCache.set(key, g);
   return g;
 }
 
 /** Metal finish of the lower rim on acetate-and-metal frames. */
-export const metalFinishFor = (p: Product, finish: FinishKey): Finish =>
-  FINISHES[p.metal?.[finish] || 'gold'];
+export const metalFinishFor = (p: Product, finish: string): Finish =>
+  p.palette[p.metal[finish] ?? ''] ?? FINISHES.gold;
 
 /* ---------- SVG renderer ---------- */
 function finishDefs(id: string, fin: Finish, g: FrameGeom) {
@@ -252,9 +253,9 @@ export interface FrameSvgOptions {
 }
 
 /** The drawing of a frame in a finish: its viewBox and the SVG markup that goes inside it. */
-export function frameSvgMarkup(p: Product, finishKey: FinishKey, id: string, opts: FrameSvgOptions = {}) {
+export function frameSvgMarkup(p: Product, finishKey: string, id: string, opts: FrameSvgOptions = {}) {
   const g = geomFor(p);
-  const fin = FINISHES[finishKey] || FINISHES.jet;
+  const fin = finishOf(p, finishKey);
   const metalFin = metalFinishFor(p, finishKey);
   const pad = opts.pad ?? 3;
   const viewBox = [-g.halfW - pad, g.top - pad, (g.halfW + pad) * 2, (g.bottom - g.top) + pad * 2].map(fmt).join(' ');
@@ -295,8 +296,8 @@ export function frameSvgMarkup(p: Product, finishKey: FinishKey, id: string, opt
 }
 
 /* ---------- small outline of a shape, for the shop filters ---------- */
-export function shapeIconMarkup(shape: ShapeKey) {
-  const g = geomFor({ id: 'icon-' + shape, shape, material: 'acetate' });
+export function shapeIconMarkup(shape: BaseShape) {
+  const g = geomFor({ look: { shape, material: 'acetate' } });
   const viewBox = [-g.halfW, g.top, g.halfW * 2, g.bottom - g.top].map(fmt).join(' ');
   const inner = `<g fill="none" stroke="currentColor" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"><path d="${smoothPath(g.left)}"/><path d="${smoothPath(g.right)}"/><path d="${g.bridge.paths[0]}"/></g>`;
   return { viewBox, inner };

@@ -2,13 +2,11 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import {
-  FACE_SHAPES, FINISHES, FINISH_ORDER, GENDERS, MATERIALS, MATERIAL_ORDER, PRODUCTS, SHAPES, SHAPE_ORDER, plural,
-  type FaceKey, type Product,
-} from '@/lib/catalog';
+import { FACE_SHAPES, GENDERS, plural, type FaceKey, type Product } from '@/lib/catalog';
 import { cx, reveal, vars } from '@/lib/css';
 import { shapeIconMarkup } from '@/lib/frames';
 import { close, isOpen, open } from '@/lib/overlay';
+import { useCatalog } from '@/components/shell/CatalogProvider';
 import { Breadcrumbs } from '@/components/ui/Breadcrumbs';
 import { Icon } from '@/components/ui/Icon';
 import { ProductItem } from '@/components/ui/ProductItem';
@@ -18,23 +16,33 @@ import {
   type ListFilter, type ShopSort, type ShopState,
 } from './shop-state';
 
-const count = (fn: (p: Product) => boolean) => PRODUCTS.filter(fn).length;
 const FACE_TIP = 'Pick your face shape to see the frames that suit it.';
 
 /** The shop: filters on the side (a sheet on mobile), the frame wall on the right. */
 export function ShopView() {
-  const state = readShopState(useSearchParams());
-  const results = shopResults(state);
+  const catalog = useCatalog();
+  const { products } = catalog;
+  const state = readShopState(useSearchParams(), catalog);
+  const results = shopResults(state, products);
   const filters = useRef<HTMLElement>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
+  const count = (fn: (p: Product) => boolean) => products.filter(fn).length;
+  // Offer the options that have frames on the wall, and keep any already chosen.
+  const offered = <T extends { slug: string; active: boolean }>(list: T[], k: ListFilter, has: (p: Product, slug: string) => boolean) =>
+    list.filter(o => (o.active && products.some(p => has(p, o.slug))) || (state[k] as string[]).includes(o.slug));
+  const shapes = offered(catalog.shapes, 'shape', (p, s) => p.shape === s);
+  const colors = offered(catalog.colors, 'color', (p, s) => p.finishes.includes(s));
+  const materials = offered(catalog.materials, 'material', (p, s) => p.material === s);
+  const categories = offered(catalog.categories, 'category', (p, s) => p.category === s);
+
   // Filters live in the address bar, so the view can be shared and survives a reload.
   const update = (patch: Partial<ShopState>) => window.history.replaceState(null, '', shopUrl({ ...state, ...patch }));
-  const toggle = <K extends ListFilter>(k: K, v: ShopState[K][number]) => {
-    const list = state[k] as string[];
+  const toggle = (k: ListFilter, v: string) => {
+    const list = state[k];
     update({ [k]: list.includes(v) ? list.filter(x => x !== v) : [...list, v] });
   };
-  const clearAll = () => update({ gender: 'all', shape: [], color: [], material: [], face: '', q: '' });
+  const clearAll = () => update({ gender: 'all', category: [], shape: [], color: [], material: [], face: '', q: '' });
 
   const openSheet = () => {
     setSheetOpen(true);
@@ -47,8 +55,13 @@ export function ShopView() {
     return () => { if (isOpen(el)) close(el!); };
   }, []);
 
+  const faceShapes = state.face
+    ? FACE_SHAPES[state.face].shapes
+        .map(base => catalog.shapes.find(s => s.base === base && s.active)?.label.toLowerCase())
+        .filter(Boolean)
+    : [];
   const faceTip = state.face
-    ? `${FACE_SHAPES[state.face].tip} Showing ${FACE_SHAPES[state.face].shapes.map(s => SHAPES[s].label.toLowerCase()).join(', ')} frames.`
+    ? `${FACE_SHAPES[state.face].tip}${faceShapes.length ? ` Showing ${faceShapes.join(', ')} frames.` : ''}`
     : FACE_TIP;
 
   return (
@@ -71,40 +84,58 @@ export function ShopView() {
             <button className="icon-btn" type="button" aria-label="Close filters" onClick={closeSheet}><Icon name="close" /></button>
           </div>
 
-          <div className="fgroup">
-            <h3>Shape <button type="button" onClick={() => update({ shape: [] })}>Clear</button></h3>
-            {SHAPE_ORDER.map(s => {
-              const icon = shapeIconMarkup(s);
-              return (
-                <button key={s} className="check" type="button" aria-pressed={state.shape.includes(s)} onClick={() => toggle('shape', s)}>
+          {categories.length > 1 && (
+            <div className="fgroup">
+              <h3>Category <button type="button" onClick={() => update({ category: [] })}>Clear</button></h3>
+              {categories.map(c => (
+                <button key={c.slug} className="check" type="button" aria-pressed={state.category.includes(c.slug)} onClick={() => toggle('category', c.slug)}>
                   <span className="check__box"><Icon name="check" /></span>
-                  <span className="check__icon"><svg viewBox={icon.viewBox} aria-hidden="true" dangerouslySetInnerHTML={{ __html: icon.inner }} /></span>
-                  {SHAPES[s].label}<em>{count(p => p.shape === s)}</em>
+                  {c.label}<em>{count(p => p.category === c.slug)}</em>
                 </button>
-              );
-            })}
-          </div>
+              ))}
+            </div>
+          )}
 
-          <div className="fgroup">
-            <h3>Frame colour <button type="button" onClick={() => update({ color: [] })}>Clear</button></h3>
-            {FINISH_ORDER.map(f => (
-              <button key={f} className="check" type="button" aria-pressed={state.color.includes(f)} onClick={() => toggle('color', f)}>
-                <span className="check__box"><Icon name="check" /></span>
-                <span className="sw" style={vars({ '--sw': FINISHES[f].swatch })} />
-                {FINISHES[f].label}<em>{count(p => p.finishes.includes(f))}</em>
-              </button>
-            ))}
-          </div>
+          {shapes.length > 0 && (
+            <div className="fgroup">
+              <h3>Shape <button type="button" onClick={() => update({ shape: [] })}>Clear</button></h3>
+              {shapes.map(s => {
+                const icon = shapeIconMarkup(s.base);
+                return (
+                  <button key={s.slug} className="check" type="button" aria-pressed={state.shape.includes(s.slug)} onClick={() => toggle('shape', s.slug)}>
+                    <span className="check__box"><Icon name="check" /></span>
+                    <span className="check__icon"><svg viewBox={icon.viewBox} aria-hidden="true" dangerouslySetInnerHTML={{ __html: icon.inner }} /></span>
+                    {s.label}<em>{count(p => p.shape === s.slug)}</em>
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
-          <div className="fgroup">
-            <h3>Material <button type="button" onClick={() => update({ material: [] })}>Clear</button></h3>
-            {MATERIAL_ORDER.map(m => (
-              <button key={m} className="check" type="button" aria-pressed={state.material.includes(m)} onClick={() => toggle('material', m)}>
-                <span className="check__box"><Icon name="check" /></span>
-                {MATERIALS[m].label}<em>{count(p => p.material === m)}</em>
-              </button>
-            ))}
-          </div>
+          {colors.length > 0 && (
+            <div className="fgroup">
+              <h3>Frame colour <button type="button" onClick={() => update({ color: [] })}>Clear</button></h3>
+              {colors.map(c => (
+                <button key={c.slug} className="check" type="button" aria-pressed={state.color.includes(c.slug)} onClick={() => toggle('color', c.slug)}>
+                  <span className="check__box"><Icon name="check" /></span>
+                  <span className="sw" style={vars({ '--sw': c.finish.swatch })} />
+                  {c.label}<em>{count(p => p.finishes.includes(c.slug))}</em>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {materials.length > 0 && (
+            <div className="fgroup">
+              <h3>Material <button type="button" onClick={() => update({ material: [] })}>Clear</button></h3>
+              {materials.map(m => (
+                <button key={m.slug} className="check" type="button" aria-pressed={state.material.includes(m.slug)} onClick={() => toggle('material', m.slug)}>
+                  <span className="check__box"><Icon name="check" /></span>
+                  {m.label}<em>{count(p => p.material === m.slug)}</em>
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="fgroup">
             <h3>Your face shape</h3>
@@ -157,17 +188,15 @@ export function ShopView() {
               )}
               {/* Re-mounts with every change of filters, so the wall focus-pulls in again. */}
               <div className="wall wall--3" data-stagger="" key={shopUrl(state)}>
-                {results.map((p, i) => {
-                  const pref = state.color.find(c => p.finishes.includes(c));
-                  const shown = pref ? { ...p, finishes: [pref, ...p.finishes.filter(f => f !== pref)] } : p;
-                  return <ProductItem key={p.id} product={shown} index={i} />;
-                })}
+                {results.map((p, i) => (
+                  <ProductItem key={p.id} product={p} index={i} initialFinish={state.color.find(c => p.finishes.includes(c))} />
+                ))}
               </div>
             </>
           ) : (
             <div className="empty">
-              <h2 className="h3">No frames match these filters.</h2>
-              <p className="muted">Remove a filter or two to see more of the wall.</p>
+              <h2 className="h3">{products.length ? 'No frames match these filters.' : 'New frames are on their way.'}</h2>
+              <p className="muted">{products.length ? 'Remove a filter or two to see more of the wall.' : 'Check back soon, or message us on WhatsApp.'}</p>
               {hasActiveFilters(state) && <button className="btn" type="button" onClick={clearAll}>Clear all filters</button>}
             </div>
           )}

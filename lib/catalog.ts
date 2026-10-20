@@ -1,16 +1,22 @@
 import { CONFIG } from './config';
 
 /* =========================================================
-   The catalogue: shapes, materials, finishes, lenses and
-   frames. Units are millimetres; prices are in CONFIG.currency.
+   The catalogue model. The shop's products, shapes,
+   materials, colours and categories live in the database
+   (see lib/catalog-build.ts); this file holds the built-in
+   drawing presets they point at, the lenses, and helpers.
+   Units are millimetres; prices are in CONFIG.currency.
    ========================================================= */
 
-export type ShapeKey =
+/** The outlines the drawing engine knows. Every shape in the shop is drawn as one of these. */
+export type BaseShape =
   | 'aviator' | 'square' | 'rectangle' | 'round' | 'cateye'
   | 'oval' | 'wayfarer' | 'geometric' | 'browline';
 export type FaceKey = 'round' | 'square' | 'oval' | 'heart' | 'long' | 'diamond';
-export type MaterialKey = 'acetate' | 'tr90' | 'metal' | 'combo';
-export type FinishKey = 'jet' | 'matte' | 'crystal' | 'smoke' | 'havana' | 'gold' | 'silver' | 'gunmetal';
+/** How a material is drawn: rim thickness, bridge and nose pads. */
+export type BaseMaterial = 'acetate' | 'tr90' | 'metal' | 'combo';
+/** How a colour is painted on the drawings and in the Live Mirror. */
+export type FinishStyle = 'gloss' | 'solid' | 'clear' | 'tint' | 'tortoise' | 'metal';
 export type LensKey = 'plain' | 'bluecut' | 'antifog';
 export type Gender = 'men' | 'women' | 'unisex';
 export type Vision = 'zero' | 'rx';
@@ -25,7 +31,7 @@ export interface Shape {
   note: string;
 }
 
-export const SHAPES: Record<ShapeKey, Shape> = {
+export const SHAPES: Record<BaseShape, Shape> = {
   aviator:   { label: 'Aviator',   A: 56, B: 48, D: 16, hinge: -0.36, suits: ['square', 'heart', 'oval'],
                note: 'Teardrop lenses and a double bridge. They balance a strong jaw and a wider forehead.' },
   square:    { label: 'Square',    A: 50, B: 45, D: 20, hinge: -0.32, suits: ['round', 'oval'],
@@ -45,7 +51,7 @@ export const SHAPES: Record<ShapeKey, Shape> = {
   browline:  { label: 'Browline',  A: 51, B: 40, D: 20, hinge: -0.34, suits: ['oval', 'heart', 'diamond'],
                note: 'A heavy upper brow over a fine metal rim. Classic, studious and sharp.' },
 };
-export const SHAPE_ORDER: ShapeKey[] = ['aviator', 'square', 'rectangle', 'round', 'cateye', 'oval', 'wayfarer', 'geometric', 'browline'];
+export const BASE_SHAPES: BaseShape[] = ['aviator', 'square', 'rectangle', 'round', 'cateye', 'oval', 'wayfarer', 'geometric', 'browline'];
 
 export interface Material {
   label: string;
@@ -56,13 +62,13 @@ export interface Material {
   brow?: number;
 }
 
-export const MATERIALS: Record<MaterialKey, Material> = {
+export const MATERIALS: Record<BaseMaterial, Material> = {
   acetate: { label: 'Acetate', short: 'acetate', rim: 4.3, bridge: 'saddle' },
   tr90:    { label: 'TR-90', short: 'TR-90', rim: 3.7, bridge: 'saddle' },
   metal:   { label: 'Metal', short: 'metal', rim: 1.45, bridge: 'arch', pads: true },
   combo:   { label: 'Acetate and metal', short: 'acetate and metal', rim: 1.35, brow: 5.4, bridge: 'arch', pads: true },
 };
-export const MATERIAL_ORDER: MaterialKey[] = ['acetate', 'tr90', 'metal', 'combo'];
+export const BASE_MATERIALS: BaseMaterial[] = ['acetate', 'tr90', 'metal', 'combo'];
 
 /* Frame finishes. The website itself stays black and white;
    these are the real colours of the frames. */
@@ -72,7 +78,8 @@ export type Finish =
   | { label: string; swatch: string; type: 'tint'; color: string; edge: string; stops?: undefined }
   | { label: string; swatch: string; type: 'clear' | 'tortoise'; color?: undefined; stops?: undefined; edge?: undefined };
 
-export const FINISHES: Record<FinishKey, Finish> = {
+/** The hand-tuned finishes of the original catalogue, keyed by colour slug. */
+export const FINISHES: Record<string, Finish> = {
   jet:      { label: 'Jet black',       type: 'gloss',  stops: ['#4a4a4a', '#000000'], swatch: '#000' },
   matte:    { label: 'Matte black',     type: 'solid',  color: '#202020', swatch: '#2b2b2b' },
   crystal:  { label: 'Crystal clear',   type: 'clear',  swatch: 'linear-gradient(135deg,#ffffff 0%,#e3e7e9 55%,#ffffff 100%)' },
@@ -82,7 +89,53 @@ export const FINISHES: Record<FinishKey, Finish> = {
   silver:   { label: 'Silver',          type: 'metal',  stops: ['#ffffff', '#c4c4c4', '#8d8d8d'], edge: '#6b6b6b', swatch: 'linear-gradient(135deg,#ffffff,#a3a3a3)' },
   gunmetal: { label: 'Gunmetal',        type: 'metal',  stops: ['#8b9096', '#4d5156', '#2b2d30'], edge: '#1d1f21', swatch: 'linear-gradient(135deg,#8a8f95,#363a3e)' },
 };
-export const FINISH_ORDER: FinishKey[] = ['jet', 'matte', 'crystal', 'smoke', 'havana', 'gold', 'silver', 'gunmetal'];
+
+/** Style and base colour of each hand-tuned finish, as they are stored in the database. */
+const PRESET_COLOURS: Record<string, [FinishStyle, string]> = {
+  jet: ['gloss', '#000000'], matte: ['solid', '#202020'], crystal: ['clear', '#eef2f4'], smoke: ['tint', '#424246'],
+  havana: ['tortoise', '#3b210f'], gold: ['metal', '#c69a4a'], silver: ['metal', '#c4c4c4'], gunmetal: ['metal', '#4d5156'],
+};
+
+export const FINISH_STYLES: { style: FinishStyle; label: string; hint: string }[] = [
+  { style: 'gloss', label: 'Gloss', hint: 'Shiny acetate with a soft highlight' },
+  { style: 'solid', label: 'Matte', hint: 'A flat, even colour' },
+  { style: 'clear', label: 'Clear', hint: 'See-through crystal' },
+  { style: 'tint', label: 'Tinted', hint: 'Translucent colour' },
+  { style: 'tortoise', label: 'Tortoise', hint: 'Havana pattern' },
+  { style: 'metal', label: 'Metal', hint: 'Polished metal with a gradient' },
+];
+
+const hexRgb = (hex: string): [number, number, number] => {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+};
+const toHex = (rgb: number[]) => '#' + rgb.map(v => Math.round(Math.min(255, Math.max(0, v))).toString(16).padStart(2, '0')).join('');
+/** Mixes `hex` toward `to` by `t` (0..1). */
+const mixHex = (hex: string, to: string, t: number) => {
+  const a = hexRgb(hex), b = hexRgb(to);
+  return toHex(a.map((v, i) => v + (b[i] - v) * t));
+};
+
+/** How a stored colour is painted: the hand-tuned preset when it matches, otherwise built from its style and hex. */
+export function makeFinish(slug: string, label: string, style: FinishStyle, rawHex: string): Finish {
+  const hex = /^#[0-9a-f]{6}$/i.test(rawHex) ? rawHex.toLowerCase() : '#000000';
+  const preset = PRESET_COLOURS[slug];
+  if (preset && preset[0] === style && preset[1] === hex) return { ...FINISHES[slug], label };
+  switch (style) {
+    case 'gloss': return { label, type: 'gloss', stops: [mixHex(hex, '#ffffff', 0.29), hex], swatch: hex };
+    case 'solid': return { label, type: 'solid', color: hex, swatch: mixHex(hex, '#ffffff', 0.06) };
+    case 'clear': return { label, type: 'clear', swatch: FINISHES.crystal.swatch };
+    case 'tint': {
+      const [r, g, b] = hexRgb(hex);
+      return { label, type: 'tint', color: `rgba(${r},${g},${b},.84)`, edge: 'rgba(0,0,0,.6)', swatch: mixHex(hex, '#ffffff', 0.18) };
+    }
+    case 'tortoise': return { label, type: 'tortoise', swatch: FINISHES.havana.swatch };
+    case 'metal': {
+      const light = mixHex(hex, '#ffffff', 0.6), dark = mixHex(hex, '#000000', 0.3);
+      return { label, type: 'metal', stops: [light, hex, dark], edge: mixHex(hex, '#000000', 0.45), swatch: `linear-gradient(135deg,${light},${mixHex(hex, '#000000', 0.12)})` };
+    }
+  }
+}
 
 /* Lens prices are added to the frame price.
    zero = zero power (no eyesight), rx = with eyesight (prescription). */
@@ -115,11 +168,12 @@ export const LENSES: Record<LensKey, Lens> = {
   },
 };
 export const LENS_ORDER: LensKey[] = ['plain', 'bluecut', 'antifog'];
+export const isLens = (v: unknown): v is LensKey => typeof v === 'string' && v in LENSES;
 
 export interface FaceShape {
   label: string;
   tip: string;
-  shapes: ShapeKey[];
+  shapes: BaseShape[];
 }
 
 export const FACE_SHAPES: Record<FaceKey, FaceShape> = {
@@ -131,92 +185,85 @@ export const FACE_SHAPES: Record<FaceKey, FaceShape> = {
   diamond: { label: 'Diamond', tip: 'Upswept or browline frames frame the eyes.', shapes: ['cateye', 'oval', 'browline', 'round'] },
 };
 
-export interface Product {
+/* ---------- the shop's catalogue ---------- */
+
+export interface ShapeOption { slug: string; label: string; note: string; base: BaseShape; active: boolean }
+export interface MaterialOption { slug: string; label: string; short: string; base: BaseMaterial; active: boolean }
+export interface ColorOption { slug: string; label: string; style: FinishStyle; hex: string; active: boolean; finish: Finish }
+export interface CategoryOption { slug: string; label: string; description: string; active: boolean }
+
+export interface ProductImage {
   id: string;
+  url: string;
+  alt: string;
+  /** The colour this photo shows, if it shows one. */
+  color: string | null;
+  width: number | null;
+  height: number | null;
+}
+
+export interface Product {
+  /** The URL slug, also used in the bag. */
+  id: string;
+  /** Database id; empty for the built-in catalogue. */
+  uuid: string;
   name: string;
   code: string;
-  shape: ShapeKey;
-  gender: Gender;
-  material: MaterialKey;
+  desc: string;
   price: number;
-  finishes: FinishKey[];
-  /** For combo frames: the metal finish that goes with each acetate finish. */
-  metal?: Partial<Record<FinishKey, FinishKey>>;
+  compareAt: number | null;
+  tag: string | null;
+  gender: Gender;
+  category: string | null;
+  shape: string;
+  material: string;
+  /** Colour slugs, the first is the default. */
+  finishes: string[];
+  /** For acetate-and-metal frames: the metal colour that goes with each acetate colour. */
+  metal: Record<string, string>;
   /** Lens width, lens height and bridge, in millimetres. */
   A: number;
   B: number;
   D: number;
   temple: number;
-  tag?: 'Bestseller' | 'New';
-  desc: string;
+  inStock: boolean;
+  featured: boolean;
+  images: ProductImage[];
+  /** How the drawing engine draws this frame. */
+  look: { shape: BaseShape; material: BaseMaterial };
+  /** Every finish the drawings of this frame may use, by colour slug. */
+  palette: Record<string, Finish>;
+  labels: { shape: string; material: string; materialShort: string; category: string | null };
 }
 
-/* The catalogue. A/B/D are lens width, lens height and bridge in mm. */
-export const PRODUCTS: Product[] = [
-  { id: 'iris', name: 'Iris', code: 'DO-101', shape: 'round', gender: 'unisex', material: 'acetate', price: 3490,
-    finishes: ['jet', 'crystal', 'havana'], A: 48, B: 46, D: 21, temple: 145, tag: 'Bestseller',
-    desc: 'Perfectly round 48 mm lenses on a keyhole-style bridge. A small, studious frame that sits light on the nose.' },
-  { id: 'meridian', name: 'Meridian', code: 'DO-102', shape: 'aviator', gender: 'men', material: 'metal', price: 4290,
-    finishes: ['silver', 'gold', 'gunmetal'], A: 56, B: 48, D: 16, temple: 140,
-    desc: 'The classic pilot shape with a double bridge and adjustable nose pads. Deep lenses give a wide field of view.' },
-  { id: 'retina', name: 'Retina', code: 'DO-103', shape: 'cateye', gender: 'women', material: 'acetate', price: 3990,
-    finishes: ['jet', 'havana', 'crystal'], A: 52, B: 40, D: 18, temple: 140, tag: 'New',
-    desc: 'An upswept cat-eye cut from thick acetate. The lifted corners open up the eyes and sharpen the cheekbones.' },
-  { id: 'axis', name: 'Axis', code: 'DO-104', shape: 'rectangle', gender: 'men', material: 'tr90', price: 2990,
-    finishes: ['matte', 'smoke', 'jet'], A: 54, B: 36, D: 17, temple: 145,
-    desc: 'A slim rectangle in flexible TR-90 that bends instead of snapping. Built for daily commutes and long desk days.' },
-  { id: 'diopter', name: 'Diopter', code: 'DO-105', shape: 'square', gender: 'unisex', material: 'acetate', price: 3690,
-    finishes: ['jet', 'smoke', 'crystal'], A: 50, B: 45, D: 20, temple: 145,
-    desc: 'A confident square with softened corners and a strong bridge. Equal parts sharp and friendly.' },
-  { id: 'cornea', name: 'Cornea', code: 'DO-106', shape: 'oval', gender: 'women', material: 'metal', price: 3290,
-    finishes: ['gold', 'silver'], A: 50, B: 38, D: 19, temple: 140,
-    desc: 'A fine metal oval with a gentle arch over the nose. Nearly weightless and easy to wear all day.' },
-  { id: 'focal', name: 'Focal', code: 'DO-107', shape: 'wayfarer', gender: 'unisex', material: 'acetate', price: 3490,
-    finishes: ['jet', 'matte', 'havana'], A: 52, B: 41, D: 18, temple: 145, tag: 'Bestseller',
-    desc: 'A modern take on the trapezoid classic, with a heavier brow line and slim lower rim.' },
-  { id: 'prism', name: 'Prism', code: 'DO-108', shape: 'geometric', gender: 'women', material: 'metal', price: 4490,
-    finishes: ['gold', 'silver', 'gunmetal'], A: 49, B: 44, D: 20, temple: 140, tag: 'New',
-    desc: 'Hexagonal lenses with flat tops, drawn in thin metal. A precise, architectural frame.' },
-  { id: 'sclera', name: 'Sclera', code: 'DO-109', shape: 'browline', gender: 'men', material: 'combo', price: 4190,
-    finishes: ['jet', 'havana', 'matte'], metal: { jet: 'gold', havana: 'gold', matte: 'silver' }, A: 51, B: 40, D: 20, temple: 145,
-    desc: 'A heavy acetate brow over a fine metal lower rim. The browline frame, cut with clean modern lines.' },
-  { id: 'lumen', name: 'Lumen', code: 'DO-110', shape: 'rectangle', gender: 'women', material: 'acetate', price: 3190,
-    finishes: ['crystal', 'jet', 'smoke'], A: 52, B: 34, D: 17, temple: 140,
-    desc: 'A narrow rectangle with rounded corners. Low enough to sit under a fringe, bold enough to be noticed.' },
-  { id: 'orbit', name: 'Orbit', code: 'DO-111', shape: 'round', gender: 'unisex', material: 'metal', price: 3790,
-    finishes: ['gold', 'silver', 'gunmetal'], A: 47, B: 45, D: 21, temple: 145,
-    desc: 'Round wire-rims with a high arched bridge and soft nose pads. A quiet classic.' },
-  { id: 'vista', name: 'Vista', code: 'DO-112', shape: 'aviator', gender: 'women', material: 'metal', price: 4290,
-    finishes: ['gold', 'silver'], A: 54, B: 46, D: 16, temple: 140,
-    desc: 'A softer, slightly smaller aviator for narrower faces. Fine metal, double bridge and a light feel.' },
-  { id: 'pupil', name: 'Pupil', code: 'DO-113', shape: 'round', gender: 'women', material: 'acetate', price: 3290,
-    finishes: ['havana', 'crystal', 'smoke'], A: 46, B: 44, D: 20, temple: 140,
-    desc: 'A petite round frame for smaller faces. Thick acetate keeps it bold at a small size.' },
-  { id: 'snellen', name: 'Snellen', code: 'DO-114', shape: 'square', gender: 'men', material: 'acetate', price: 3990,
-    finishes: ['jet', 'matte', 'havana'], A: 53, B: 46, D: 19, temple: 150, tag: 'Bestseller',
-    desc: 'Named after the eye chart. A broad, thick square for wider faces, with 150 mm temples.' },
-  { id: 'halo', name: 'Halo', code: 'DO-115', shape: 'cateye', gender: 'women', material: 'acetate', price: 3590,
-    finishes: ['crystal', 'jet'], A: 50, B: 39, D: 18, temple: 140,
-    desc: 'A softly lifted cat-eye in clear and black acetate. Feminine without the drama.' },
-  { id: 'apex', name: 'Apex', code: 'DO-116', shape: 'geometric', gender: 'men', material: 'metal', price: 4490,
-    finishes: ['gunmetal', 'silver'], A: 52, B: 46, D: 19, temple: 145,
-    desc: 'A larger hexagon in gunmetal or silver. Strong geometry for strong features.' },
-  { id: 'tarsus', name: 'Tarsus', code: 'DO-117', shape: 'oval', gender: 'men', material: 'tr90', price: 2790,
-    finishes: ['matte', 'smoke'], A: 52, B: 38, D: 18, temple: 145,
-    desc: 'A light, flexible oval in matte TR-90. The everyday frame you forget you are wearing.' },
-  { id: 'macula', name: 'Macula', code: 'DO-118', shape: 'wayfarer', gender: 'women', material: 'acetate', price: 3490,
-    finishes: ['havana', 'jet', 'crystal'], A: 50, B: 40, D: 18, temple: 140,
-    desc: 'A slightly smaller wayfarer with a lifted outer corner. A bold everyday frame for narrower faces.' },
-];
+export interface Catalog {
+  products: Product[];
+  shapes: ShapeOption[];
+  materials: MaterialOption[];
+  colors: ColorOption[];
+  categories: CategoryOption[];
+  /** Where the catalogue came from: the database, or the built-in copy when it could not be reached. */
+  source: 'database' | 'builtin';
+}
 
 export const GENDER_LABEL: Record<Gender, string> = { men: 'Men', women: 'Women', unisex: 'Unisex' };
 export const GENDERS: [Gender | 'all', string][] = [['all', 'All'], ['men', 'Men'], ['women', 'Women']];
 
-export const productById = (id: string) => PRODUCTS.find(p => p.id === id);
-export const isFinish = (v: unknown): v is FinishKey => typeof v === 'string' && v in FINISHES;
-export const isShape = (v: unknown): v is ShapeKey => typeof v === 'string' && v in SHAPES;
-export const isMaterial = (v: unknown): v is MaterialKey => typeof v === 'string' && v in MATERIALS;
 export const isFace = (v: unknown): v is FaceKey => typeof v === 'string' && v in FACE_SHAPES;
+export const isBaseShape = (v: unknown): v is BaseShape => typeof v === 'string' && v in SHAPES;
+export const isBaseMaterial = (v: unknown): v is BaseMaterial => typeof v === 'string' && v in MATERIALS;
+
+/** The finish of a frame in one of its colours (or its first colour). */
+export const finishOf = (p: Product, key: string): Finish =>
+  p.palette[key] ?? p.palette[p.finishes[0]] ?? FINISHES.jet;
+
+/** The colour a frame should show: the one asked for when the frame comes in it, else its first. */
+export const pickFinish = (p: Product, wanted?: string | null, current?: string | null) =>
+  wanted && p.finishes.includes(wanted) ? wanted : current && p.finishes.includes(current) ? current : p.finishes[0] ?? '';
+
+/** The photo to show for a colour: one taken in that colour, else the first photo. */
+export const imageFor = (p: Product, finish?: string | null): ProductImage | null =>
+  p.images.find(i => i.color && i.color === finish) ?? p.images[0] ?? null;
 
 export const money = (n: number) => `${CONFIG.currency} ${Math.round(n).toLocaleString('en-US')}`;
 export const plusMoney = (n: number) => (n === 0 ? 'Included' : '+' + money(n));
@@ -224,10 +271,11 @@ export const lensPrice = (lens: LensKey, vision: Vision) => LENSES[lens].price[v
 export const visionLabel = (v: Vision) => (v === 'rx' ? 'With eyesight' : 'Zero power');
 export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-export function searchProducts(query: string) {
+export function searchProducts(products: Product[], query: string) {
   const q = query.trim().toLowerCase().replace('cat eye', 'cat-eye');
   if (!q) return [];
-  return PRODUCTS.filter(p =>
-    [p.name, SHAPES[p.shape].label, GENDER_LABEL[p.gender], MATERIALS[p.material].label, ...p.finishes.map(f => FINISHES[f].label), p.code]
+  return products.filter(p =>
+    [p.name, p.labels.shape, GENDER_LABEL[p.gender], p.labels.material, p.labels.category ?? '', p.tag ?? '',
+      ...p.finishes.map(f => finishOf(p, f).label), p.code]
       .join(' ').toLowerCase().includes(q));
 }

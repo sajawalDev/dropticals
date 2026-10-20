@@ -27,3 +27,9 @@ export const LOGO_TAG: LogoPart = {
 
 /** Bounding box of the full lockup: emblem, rule, wordmark and tagline. */
 export const LOGO_FULL_BOX = [8.13, 8.01, 404.98, 277.72] as const;
+
+/**
+ * The lockup without the tagline. The tagline reads "Eye Care Center"; it stays
+ * hidden while Dr's Opticals is a shop only, and LOGO_TAG is kept for when the clinic opens.
+ */
+export const LOGO_SHOP_BOX = [8.13, 8.01, 404.98, 254.32] as const;

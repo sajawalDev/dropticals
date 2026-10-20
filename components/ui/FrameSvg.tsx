@@ -1,10 +1,12 @@
+import Image from 'next/image';
 import { useId } from 'react';
-import { FINISHES, type FinishKey, type Product } from '@/lib/catalog';
+import { finishOf, imageFor, type Product } from '@/lib/catalog';
+import { cx } from '@/lib/css';
 import { frameSvgMarkup } from '@/lib/frames';
 
 interface FrameSvgProps {
   product: Product;
-  finish: FinishKey;
+  finish: string;
   /** Accessible name. Without one the drawing is decorative. */
   label?: string;
   /** Draw the glass tint and glare (default true). */
@@ -30,4 +32,31 @@ export function FrameSvg({ product, finish, label, lens, align, className }: Fra
   );
 }
 
-export const frameLabel = (p: Product, finish: FinishKey) => `${p.name} in ${FINISHES[finish].label}`;
+export const frameLabel = (p: Product, finish: string) => `${p.name} in ${finishOf(p, finish).label}`;
+
+interface ProductArtProps {
+  product: Product;
+  finish: string;
+  label?: string;
+  /** Rendered width hint for the photo, as a `sizes` value. */
+  sizes?: string;
+  priority?: boolean;
+  className?: string;
+}
+
+/** A product's photo in this colour when it has one, otherwise its drawing. */
+export function ProductArt({ product, finish, label, sizes = '160px', priority, className }: ProductArtProps) {
+  const photo = imageFor(product, finish);
+  if (!photo) return <FrameSvg product={product} finish={finish} label={label} className={className} />;
+  return (
+    <Image
+      className={cx('product-photo', className)}
+      src={photo.url}
+      alt={label ?? photo.alt ?? ''}
+      width={photo.width || 1200}
+      height={photo.height || 800}
+      sizes={sizes}
+      priority={priority}
+    />
+  );
+}

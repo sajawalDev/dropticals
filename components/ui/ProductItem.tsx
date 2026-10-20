@@ -1,38 +1,46 @@
 'use client';
 
 import { useState } from 'react';
-import { GENDER_LABEL, MATERIALS, SHAPES, money, type FinishKey, type Product } from '@/lib/catalog';
-import { reveal } from '@/lib/css';
+import { GENDER_LABEL, imageFor, money, type Product } from '@/lib/catalog';
+import { cx, reveal } from '@/lib/css';
 import { FmfButton } from './FmfButton';
-import { FrameSvg, frameLabel } from './FrameSvg';
+import { FrameSvg, ProductArt, frameLabel } from './FrameSvg';
 import { Link } from './Link';
 import { Swatches } from './Swatches';
 
-/** A frame on the wall: drawing, reflection, price, finishes and Frame My Face. */
-export function ProductItem({ product: p, index }: { product: Product; index?: number }) {
-  const [finish, setFinish] = useState<FinishKey>(p.finishes[0]);
+/** A frame on the wall: photo or drawing, price, colours and Frame My Face. */
+export function ProductItem({ product: p, index, initialFinish }: { product: Product; index?: number; initialFinish?: string }) {
+  const [finish, setFinish] = useState<string>(initialFinish && p.finishes.includes(initialFinish) ? initialFinish : p.finishes[0] ?? '');
   const [picked, setPicked] = useState(false);
-  const shape = SHAPES[p.shape].label;
   const href = picked ? `/frame/${p.id}?finish=${finish}` : `/frame/${p.id}`;
-  const pick = (f: FinishKey) => { setFinish(f); setPicked(true); };
+  const pick = (f: string) => { setFinish(f); setPicked(true); };
+  const hasPhoto = !!imageFor(p, finish);
+  const tag = !p.inStock ? 'Sold out' : p.tag;
 
   return (
-    <article className="item" {...(index === undefined ? {} : reveal(index))}>
-      {p.tag && <span className="item__tag">{p.tag}</span>}
-      <Link className="item__art" href={href} aria-label={`${p.name}, ${shape} frame`}>
-        <FrameSvg product={p} finish={finish} label={frameLabel(p, finish)} align="xMidYMax meet" />
+    <article className={cx('item', hasPhoto && 'item--photo', !p.inStock && 'item--sold')} {...(index === undefined ? {} : reveal(index))}>
+      {tag && <span className="item__tag">{tag}</span>}
+      <Link className="item__art" href={href} aria-label={`${p.name}, ${p.labels.shape} frame`}>
+        {hasPhoto
+          ? <ProductArt product={p} finish={finish} label={frameLabel(p, finish)} sizes="(max-width: 640px) 50vw, (max-width: 1100px) 33vw, 360px" />
+          : <FrameSvg product={p} finish={finish} label={frameLabel(p, finish)} align="xMidYMax meet" />}
       </Link>
       <div className="item__refl" aria-hidden="true">
-        <FrameSvg product={p} finish={finish} lens={false} align="xMidYMax meet" />
+        {!hasPhoto && <FrameSvg product={p} finish={finish} lens={false} align="xMidYMax meet" />}
       </div>
       <div className="item__body">
         <div className="item__row">
           <Link className="item__name" href={href}>{p.name}</Link>
-          <span className="item__price">{money(p.price)}</span>
+          <span className="item__price">
+            {p.compareAt && <s className="item__was">{money(p.compareAt)}</s>}
+            {money(p.price)}
+          </span>
         </div>
-        <div className="item__meta">{shape}, {GENDER_LABEL[p.gender].toLowerCase()}, {MATERIALS[p.material].short}</div>
+        <div className="item__meta">
+          {[p.labels.shape, GENDER_LABEL[p.gender].toLowerCase(), p.labels.materialShort].filter(Boolean).join(', ')}
+        </div>
         <div className="item__foot">
-          <Swatches finishes={p.finishes} active={finish} onPick={pick} />
+          <Swatches product={p} active={finish} onPick={pick} />
           <FmfButton productId={p.id} finish={finish} />
         </div>
       </div>

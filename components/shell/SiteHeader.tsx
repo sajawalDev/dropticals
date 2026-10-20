@@ -2,21 +2,21 @@
 
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { usePathname } from 'next/navigation';
-import { PRODUCTS, SHAPES, money, plural, searchProducts } from '@/lib/catalog';
+import { money, plural, searchProducts } from '@/lib/catalog';
 import { cartCount, useCart, useCartAdds } from '@/lib/cart';
 import { CONFIG } from '@/lib/config';
 import { cx, vars } from '@/lib/css';
 import { close, open } from '@/lib/overlay';
 import { onScroll } from '@/lib/scroll';
-import { FrameSvg } from '@/components/ui/FrameSvg';
+import { ProductArt } from '@/components/ui/FrameSvg';
 import { Icon } from '@/components/ui/Icon';
 import { Link } from '@/components/ui/Link';
+import { useCatalog } from './CatalogProvider';
 import { useNavigate } from './NavigationProvider';
 
 export const NAV: [string, string][] = [
-  ['/shop', 'Eyeglasses'], ['/mirror', 'Live Mirror'], ['/lenses', 'Lenses'], ['/clinic', 'Eye Clinic'], ['/about', 'About'],
+  ['/shop', 'Eyeglasses'], ['/mirror', 'Live Mirror'], ['/lenses', 'Lenses'], ['/about', 'About'], ['/contact', 'Contact'],
 ];
-const MENU = [...NAV, ['/contact', 'Contact']];
 /* The mobile menu is sized like the rows of an eye chart. */
 const CHART_SIZES = [3.5, 2.9, 2.45, 2.1, 1.8, 1.55];
 const CHART_ROWS = ['6/60', '6/36', '6/24', '6/18', '6/12', '6/9'];
@@ -81,7 +81,7 @@ export function SiteHeader({ logo }: { logo: ReactNode }) {
           <button className="icon-btn" type="button" aria-label="Close menu" onClick={() => close(menu.current!)}><Icon name="close" /></button>
         </div>
         <nav className="mmenu__list" aria-label="Mobile">
-          {MENU.map(([h, t], i) => (
+          {NAV.map(([h, t], i) => (
             <Link key={h} href={h} aria-current={current === h ? 'page' : undefined} style={{ ...vars({ '--i': i }), fontSize: `${CHART_SIZES[i]}rem` }}>
               <span>{t}</span><small>{CHART_ROWS[i]}</small>
             </Link>
@@ -119,12 +119,14 @@ function BagButton() {
 
 function SearchPanel({ panel, isOpen }: { panel: RefObject<HTMLDivElement | null>; isOpen: boolean }) {
   const navigate = useNavigate();
+  const { products } = useCatalog();
   const input = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState('');
   const q = query.trim();
-  const list = q ? searchProducts(q) : PRODUCTS.filter(p => p.tag === 'Bestseller');
+  const picks = products.filter(p => p.tag === 'Bestseller' || p.featured);
+  const list = q ? searchProducts(products, q) : picks.length ? picks : products;
   const hint = !q
-    ? 'Bestsellers. Try "round", "gold" or "cat-eye".'
+    ? 'Popular frames. Try "round", "gold" or "cat-eye".'
     : list.length
       ? `${plural(list.length, 'frame')} found. Press Enter to see them in the shop.`
       : `No frames match "${q}". Try a shape like round or square.`;
@@ -156,9 +158,9 @@ function SearchPanel({ panel, isOpen }: { panel: RefObject<HTMLDivElement | null
         <div className="search__res">
           {list.slice(0, 8).map(p => (
             <Link key={p.id} href={`/frame/${p.id}`}>
-              <FrameSvg product={p} finish={p.finishes[0]} />
+              <ProductArt product={p} finish={p.finishes[0]} />
               <b>{p.name}</b>
-              <span>{SHAPES[p.shape].label}, {money(p.price)}</span>
+              <span>{p.labels.shape}, {money(p.price)}</span>
             </Link>
           ))}
         </div>

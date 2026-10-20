@@ -35,7 +35,8 @@ export function OrderView({ no }: { no: string }) {
         <div className="panel" {...reveal()}>
           <h2 className="h3">What happens next</h2>
           <ol className="seq mt-4">
-            {hasRx && <li><div><b>We check your prescription</b><span>Our optometrist reviews it and calls you if anything is unclear.</span></div></li>}
+            <li><div><b>We confirm your order</b><span>We call or message you to confirm the details.</span></div></li>
+            {hasRx && <li><div><b>We check your prescription</b><span>We read it carefully and call you if anything is unclear.</span></div></li>}
             <li><div><b>Lenses are cut and fitted</b><span>Each lens is shaped to your frame and checked.</span></div></li>
             <li>
               <div>

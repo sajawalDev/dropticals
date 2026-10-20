@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { clamp } from './motion';
 import { store } from './storage';
-import type { FinishKey, LensKey, Vision } from './catalog';
+import { lensPrice, type LensKey, type Product, type Vision } from './catalog';
 
 /* =========================================================
    The bag. Kept in localStorage and read through
@@ -13,12 +13,14 @@ export interface RxInfo {
   size: number;
   pd: string;
   note: string;
+  /** Where the uploaded prescription is stored (private bucket). */
+  path?: string;
 }
 
 export interface CartItem {
   key: string;
   productId: string;
-  finish: FinishKey;
+  finish: string;
   vision: Vision;
   lens: LensKey;
   rx: RxInfo | null;
@@ -39,9 +41,6 @@ const EMPTY: CartItem[] = [];
 const listeners = new Set<() => void>();
 let items: CartItem[] | null = null;
 let adds = 0;
-
-/** Prescription files picked for items in the bag, kept in memory for the order. */
-export const rxFiles = new Map<string, File>();
 
 const load = () => (items ??= store.get<CartItem[]>('cart', []));
 
@@ -75,7 +74,10 @@ export const cart = {
 };
 
 export const cartCount = (list: CartItem[]) => list.reduce((n, i) => n + i.qty, 0);
-export const cartSubtotal = (list: CartItem[]) => list.reduce((n, i) => n + i.unit * i.qty, 0);
+/** What a line costs now: today's frame price plus its lens, or its price when added if the frame is gone. */
+export const linePrice = (i: CartItem, p?: Pick<Product, 'price'>) => (p ? p.price + lensPrice(i.lens, i.vision) : i.unit);
+export const cartSubtotal = (list: CartItem[], byId?: Map<string, Product>) =>
+  list.reduce((n, i) => n + linePrice(i, byId?.get(i.productId)) * i.qty, 0);
 
 /** Items in the bag. On the server, and during hydration, the bag reads as empty. */
 export const useCart = () => useSyncExternalStore(subscribe, load, () => EMPTY);

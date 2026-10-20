@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { SHAPES, type ShapeKey } from '@/lib/catalog';
+import { SHAPES, type BaseShape } from '@/lib/catalog';
 import { smoothPath, type FrameGeom } from '@/lib/frames';
 import { useFinePointer } from '@/lib/hooks';
 import { MorphFrame, paintFrameEls, queryFrameEls } from '@/lib/morph';
@@ -25,7 +25,7 @@ const ROWS = [
   { t: 'THDRSO', fs: 31.5, y: 594, fr: '6/9' },
   { t: 'PTICALS', fs: 21, y: 630, fr: '6/6' },
 ];
-const ORDER: ShapeKey[] = ['round', 'square', 'cateye', 'aviator', 'wayfarer', 'geometric', 'rectangle', 'oval', 'browline'];
+const ORDER: BaseShape[] =['round', 'square', 'cateye', 'aviator', 'wayfarer', 'geometric', 'rectangle', 'oval', 'browline'];
 const S = 2.35;   // chart units per mm
 const MAG = 1.07; // lens magnification
 const serif = { fontFamily: 'var(--serif)' };
@@ -54,7 +54,7 @@ function ChartLabels() {
 /** `emblem` is the logo mark drawn at the foot of the chart. */
 export function HeroChart({ emblem }: { emblem: ReactNode }) {
   const fine = useFinePointer();
-  const [shape, setShape] = useState<ShapeKey>('round');
+  const [shape, setShape] = useState<BaseShape>('round');
   const chartRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {

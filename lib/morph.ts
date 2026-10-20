@@ -1,4 +1,4 @@
-import { SHAPES, type MaterialKey, type ShapeKey } from './catalog';
+import { SHAPES, type BaseMaterial, type BaseShape } from './catalog';
 import { buildGeom, fmt, lerpUnit, smoothPath, unitContour, type FrameGeom, type Pt } from './frames';
 import { clamp, easeIO, lerp, prefersReducedMotion } from './motion';
 
@@ -8,7 +8,7 @@ import { clamp, easeIO, lerp, prefersReducedMotion } from './motion';
    ========================================================= */
 
 interface MorphSpec {
-  shape: ShapeKey;
+  shape: BaseShape;
   unit: Pt[];
   A: number;
   B: number;
@@ -20,9 +20,9 @@ export class MorphFrame {
   private cur: MorphSpec | null = null;
   private raf = 0;
 
-  constructor(private material: MaterialKey, private onGeom: (g: FrameGeom) => void) {}
+  constructor(private material: BaseMaterial, private onGeom: (g: FrameGeom) => void) {}
 
-  private spec(shape: ShapeKey): MorphSpec {
+  private spec(shape: BaseShape): MorphSpec {
     const s = SHAPES[shape];
     return { shape, unit: unitContour(shape), A: s.A, B: s.B, D: s.D, hinge: s.hinge };
   }
@@ -31,7 +31,7 @@ export class MorphFrame {
     return buildGeom(m.unit, { A: m.A, B: m.B, D: m.D, material: this.material, shape: m.shape, hinge: m.hinge });
   }
 
-  set(shape: ShapeKey, dur = 650) {
+  set(shape: BaseShape, dur = 650) {
     const to = this.spec(shape);
     cancelAnimationFrame(this.raf);
     if (!this.cur || prefersReducedMotion() || !dur) { this.cur = to; this.onGeom(this.geom(to)); return; }

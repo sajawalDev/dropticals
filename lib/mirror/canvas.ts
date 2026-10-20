@@ -1,4 +1,4 @@
-import { FINISHES, type Finish, type FinishKey, type Product } from '../catalog';
+import { finishOf, type Finish, type Product } from '../catalog';
 import { geomFor, metalFinishFor, smoothPath, type FrameGeom, type Pt } from '../frames';
 
 /* =========================================================
@@ -68,9 +68,9 @@ function geomPaths(g: FrameGeom): GeomPaths {
  * Draws the frame front centred on (0,0) in mm. The caller sets the transform.
  * persp: -1..1, positive makes the right lens smaller (head turned).
  */
-export function drawFrameCanvas(ctx: CanvasRenderingContext2D, p: Product, finishKey: FinishKey, persp = 0) {
+export function drawFrameCanvas(ctx: CanvasRenderingContext2D, p: Product, finishKey: string, persp = 0) {
   const g = geomFor(p);
-  const fin = FINISHES[finishKey] || FINISHES.jet;
+  const fin = finishOf(p, finishKey);
   const metalFin = metalFinishFor(p, finishKey);
   const rimFin = g.brow ? metalFin : fin;
   const P = geomPaths(g);
@@ -115,8 +115,8 @@ export function drawFrameCanvas(ctx: CanvasRenderingContext2D, p: Product, finis
 }
 
 /** A flat colour for the temple arm in a finish. */
-export function finishRimStyle(finishKey: FinishKey) {
-  const f = FINISHES[finishKey] || FINISHES.jet;
+export function finishRimStyle(p: Product, finishKey: string) {
+  const f = finishOf(p, finishKey);
   if (f.type === 'clear') return 'rgba(200,206,210,.85)';
   if (f.type === 'tint' || f.type === 'solid') return f.color;
   if (f.type === 'tortoise') return '#5a3317';

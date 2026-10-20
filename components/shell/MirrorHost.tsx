@@ -2,14 +2,13 @@
 
 import dynamic from 'next/dynamic';
 import { useEffect, useState } from 'react';
-import type { FinishKey } from '@/lib/catalog';
 import { onUI } from '@/lib/ui-events';
 
 const LiveMirror = dynamic(() => import('@/components/mirror/LiveMirror'), { ssr: false });
 
 export interface MirrorRequest {
   productId: string;
-  finish?: FinishKey;
+  finish?: string;
   /** Changes on every request, so asking again reopens the mirror. */
   nonce: number;
 }

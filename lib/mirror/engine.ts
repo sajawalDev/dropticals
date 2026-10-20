@@ -1,4 +1,4 @@
-import { FINISHES, type FinishKey, type Product } from '../catalog';
+import { finishOf, type Product } from '../catalog';
 import { geomFor } from '../frames';
 import { LOGO_EMBLEM } from '../logo';
 import { clamp } from '../motion';
@@ -17,7 +17,7 @@ export type MirrorMode = 'idle' | 'starting' | 'live' | 'manual' | 'photo';
 
 export interface Selection {
   product: Product;
-  finish: FinishKey;
+  finish: string;
   /** Size slider, 0.84 to 1.16. */
   fit: number;
 }
@@ -109,7 +109,7 @@ export class MirrorEngine {
       c.save();
       c.setTransform(1, 0, 0, 1, 0, 0);
       c.globalAlpha = ta; c.lineCap = 'round';
-      c.strokeStyle = finishRimStyle(finish);
+      c.strokeStyle = finishRimStyle(p, finish);
       c.lineWidth = Math.max(g.rim * 0.9 * k, 2);
       c.beginPath();
       c.moveTo(hinge.x, hinge.y);
@@ -324,7 +324,7 @@ export class MirrorEngine {
     const font = getComputedStyle(document.body).fontFamily;
     o.fillStyle = '#fff'; o.textBaseline = 'alphabetic';
     o.font = `600 ${Math.round(bh * 0.27)}px ${font}`;
-    o.fillText(`${product.name}, ${FINISHES[finish].label}`, tx, H - pad - bh * 0.34);
+    o.fillText(`${product.name}, ${finishOf(product, finish).label}`, tx, H - pad - bh * 0.34);
     o.font = `500 ${Math.round(bh * 0.19)}px ${font}`;
     o.fillText("Dr's Opticals Live Mirror", tx, H - pad - bh * 0.04);
     return new Promise(resolve => out.toBlob(blob => {

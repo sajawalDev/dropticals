@@ -1,0 +1,370 @@
+'use client';
+
+import NextLink from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useState, useTransition, type FormEvent } from 'react';
+import { deleteProduct, saveProduct, type ProductInput } from '@/lib/admin/actions/products';
+import { GENDER_LABEL, SHAPES, finishOf, money, type Gender } from '@/lib/catalog';
+import { buildProduct, makeLookups, slugify, toColor, type FilterRows, type ProductRow } from '@/lib/catalog-build';
+import { vars } from '@/lib/css';
+import type { PublicSupabase } from '@/lib/supabase/env';
+import { FrameSvg } from '@/components/ui/FrameSvg';
+import { Icon } from '@/components/ui/Icon';
+import { Field, Select, Switch, TextArea, TextInput } from './fields';
+import { confirmDialog, toast, toastError } from './feedback';
+import { ImageManager, type EditableImage } from './ImageManager';
+
+const TAGS = ['Bestseller', 'New', 'Sale', 'Limited', 'Staff pick'];
+
+interface State {
+  name: string;
+  slug: string;
+  slugTouched: boolean;
+  code: string;
+  description: string;
+  price: string;
+  compareAt: string;
+  tag: string;
+  gender: Gender;
+  categoryId: string;
+  shapeId: string;
+  materialId: string;
+  A: string;
+  B: string;
+  D: string;
+  temple: string;
+  inStock: boolean;
+  isActive: boolean;
+  isFeatured: boolean;
+  sortOrder: string;
+  colors: { colorId: string; metalColorId: string | null }[];
+  images: EditableImage[];
+}
+
+function initialState(row: ProductRow | null, filters: FilterRows, nextSort: number): State {
+  if (!row) {
+    const shape = filters.shapes.find(s => s.is_active) ?? filters.shapes[0];
+    const base = SHAPES[(shape?.base as keyof typeof SHAPES) ?? 'round'] ?? SHAPES.round;
+    return {
+      name: '', slug: '', slugTouched: false, code: '', description: '', price: '', compareAt: '', tag: '', gender: 'unisex',
+      categoryId: filters.categories.find(c => c.is_active)?.id ?? '', shapeId: shape?.id ?? '',
+      materialId: filters.materials.find(m => m.is_active)?.id ?? '',
+      A: String(base.A), B: String(base.B), D: String(base.D), temple: '145',
+      inStock: true, isActive: true, isFeatured: false, sortOrder: String(nextSort),
+      colors: filters.colors.filter(c => c.is_active).slice(0, 1).map(c => ({ colorId: c.id, metalColorId: null })),
+      images: [],
+    };
+  }
+  return {
+    name: row.name, slug: row.slug, slugTouched: true, code: row.code ?? '', description: row.description,
+    price: String(row.price), compareAt: row.compare_at_price ? String(row.compare_at_price) : '', tag: row.tag ?? '',
+    gender: (row.gender in GENDER_LABEL ? row.gender : 'unisex') as Gender,
+    categoryId: row.category_id ?? '', shapeId: row.shape_id ?? '', materialId: row.material_id ?? '',
+    A: String(row.lens_width), B: String(row.lens_height), D: String(row.bridge), temple: String(row.temple),
+    inStock: row.in_stock, isActive: row.is_active, isFeatured: row.is_featured, sortOrder: String(row.sort_order),
+    colors: [...(row.product_colors ?? [])].sort((a, b) => a.position - b.position).map(c => ({ colorId: c.color_id, metalColorId: c.metal_color_id })),
+    images: [...(row.product_images ?? [])].sort((a, b) => a.sort_order - b.sort_order).map(i => ({
+      key: i.id, id: i.id, path: i.path, url: i.url, alt: i.alt, colorId: i.color_id, width: i.width, height: i.height,
+    })),
+  };
+}
+
+/** What gets saved, for spotting unsaved changes. */
+const snapshot = (s: State) => JSON.stringify({
+  ...s,
+  slugTouched: undefined,
+  images: s.images.map(i => [i.id, i.path, i.alt, i.colorId]),
+});
+
+export function ProductForm({ row, filters, supabase, nextSort }: { row: ProductRow | null; filters: FilterRows; supabase: PublicSupabase | null; nextSort: number }) {
+  const router = useRouter();
+  const [s, setS] = useState<State>(() => initialState(row, filters, nextSort));
+  const [saved, setSaved] = useState(() => snapshot(initialState(row, filters, nextSort)));
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [previewColour, setPreviewColour] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+  const isNew = !row;
+
+  const dirty = snapshot(s) !== saved;
+  const uploading = s.images.some(i => i.uploading);
+  const set = <K extends keyof State>(k: K, v: State[K]) => setS(prev => ({ ...prev, [k]: v }));
+
+  // Ask before leaving with unsaved changes.
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
+
+  const lookups = useMemo(() => makeLookups(filters), [filters]);
+  const material = filters.materials.find(m => m.id === s.materialId);
+  const isCombo = material?.base === 'combo';
+  const metalColours = filters.colors.filter(c => c.style === 'metal');
+
+  // The product as the shop will draw it, from what is on the form right now.
+  const preview = buildProduct({
+    id: row?.id ?? 'new', slug: s.slug || 'new', name: s.name || 'New frame', code: s.code || null, description: s.description,
+    price: Number(s.price) || 0, compare_at_price: null, tag: s.tag || null, gender: s.gender,
+    category_id: s.categoryId || null, shape_id: s.shapeId || null, material_id: s.materialId || null,
+    lens_width: Number(s.A) || 50, lens_height: Number(s.B) || 40, bridge: Number(s.D) || 18, temple: Number(s.temple) || 145,
+    in_stock: s.inStock, is_active: s.isActive, is_featured: s.isFeatured, sort_order: 0,
+    product_colors: s.colors.map((c, position) => ({ color_id: c.colorId, metal_color_id: isCombo ? c.metalColorId : null, position })),
+    product_images: [],
+  }, lookups);
+  const shownColour = previewColour && preview.finishes.includes(previewColour) ? previewColour : preview.finishes[0] ?? '';
+
+  const onName = (name: string) => setS(prev => ({ ...prev, name, slug: prev.slugTouched ? prev.slug : slugify(name) }));
+
+  const useShapeSizes = () => {
+    const shape = filters.shapes.find(x => x.id === s.shapeId);
+    const base = shape ? SHAPES[shape.base as keyof typeof SHAPES] : undefined;
+    if (base) setS(prev => ({ ...prev, A: String(base.A), B: String(base.B), D: String(base.D) }));
+  };
+
+  const toggleColour = (id: string) => setS(prev => ({
+    ...prev,
+    colors: prev.colors.some(c => c.colorId === id)
+      ? prev.colors.filter(c => c.colorId !== id)
+      : [...prev.colors, { colorId: id, metalColorId: metalColours[0]?.id ?? null }],
+  }));
+  const moveColour = (i: number, by: number) => setS(prev => {
+    const j = i + by;
+    if (j < 0 || j >= prev.colors.length) return prev;
+    const colors = [...prev.colors];
+    [colors[i], colors[j]] = [colors[j], colors[i]];
+    return { ...prev, colors };
+  });
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    const errs: Record<string, string> = {};
+    if (!s.name.trim()) errs.name = 'Give the product a name.';
+    if (s.price === '' || !(Number(s.price) >= 0)) errs.price = 'Enter a price.';
+    if (s.compareAt && !(Number(s.compareAt) > Number(s.price))) errs.compareAt = 'Must be higher than the price, or empty.';
+    setErrors(errs);
+    if (Object.keys(errs).length) { toastError('Check the highlighted fields.'); return; }
+    if (uploading) { toastError('Wait for the photos to finish uploading.'); return; }
+
+    const input: ProductInput = {
+      id: row?.id,
+      name: s.name, slug: s.slug || slugify(s.name), code: s.code, description: s.description,
+      price: Number(s.price), compareAt: s.compareAt ? Number(s.compareAt) : null, tag: s.tag, gender: s.gender,
+      categoryId: s.categoryId || null, shapeId: s.shapeId || null, materialId: s.materialId || null,
+      A: Number(s.A), B: Number(s.B), D: Number(s.D), temple: Number(s.temple),
+      inStock: s.inStock, isActive: s.isActive, isFeatured: s.isFeatured, sortOrder: Number(s.sortOrder) || 0,
+      colors: s.colors.map(c => ({ colorId: c.colorId, metalColorId: isCombo ? c.metalColorId : null })),
+      images: s.images.filter(i => i.path).map(i => ({ id: i.id, path: i.path, url: i.url, alt: i.alt, colorId: i.colorId, width: i.width, height: i.height })),
+    };
+    start(async () => {
+      const res = await saveProduct(input);
+      if (!res.ok) {
+        if (res.field) setErrors({ [res.field]: res.error });
+        toastError(res.error);
+        return;
+      }
+      setSaved(snapshot(s));
+      toast(isNew ? `${s.name} added to the shop` : 'Changes saved', { body: s.isActive ? 'It is live in the shop.' : 'It is hidden from the shop.' });
+      if (isNew) router.replace(`/admin/products/${res.id}`);
+    });
+  };
+
+  const remove = async () => {
+    if (!row) return;
+    const ok = await confirmDialog({
+      title: `Delete ${row.name}?`,
+      body: 'The product and its photos are removed for good. Past orders keep their details. To take it down for a while, switch off "Live in the shop" instead.',
+      confirmLabel: 'Delete product',
+      danger: true,
+    });
+    if (!ok) return;
+    start(async () => {
+      const res = await deleteProduct(row.id);
+      if (!res.ok) { toastError(res.error); return; }
+      setSaved(snapshot(s));
+      toast(`${row.name} deleted`);
+      router.push('/admin/products');
+    });
+  };
+
+  return (
+    <form className="adm-grid adm-grid--form" onSubmit={submit} noValidate>
+      <div className="adm-grid">
+        <section className="adm-card">
+          <div className="adm-card__head"><div><h2>Basics</h2><p>What customers read on the frame page.</p></div></div>
+          <div className="adm-card__body adm-form">
+            <TextInput id="pName" label="Name" value={s.name} onChange={e => onName(e.target.value)} maxLength={80} required error={errors.name} placeholder="For example Iris" />
+            <div className="adm-row">
+              <TextInput id="pSlug" label="URL name" value={s.slug} prefix="/frame/" maxLength={60} error={errors.slug}
+                hint="Letters, numbers and dashes." onChange={e => setS(prev => ({ ...prev, slug: slugify(e.target.value) || e.target.value.toLowerCase(), slugTouched: true }))} />
+              <TextInput id="pCode" label="Code (SKU)" value={s.code} onChange={e => set('code', e.target.value)} maxLength={30} error={errors.code} placeholder="DO-119" hint="Optional. Shown on the frame page." />
+            </div>
+            <TextArea id="pDesc" label="Description" value={s.description} onChange={e => set('description', e.target.value)} maxLength={2000}
+              placeholder="What makes this frame special, who it suits, how it feels." hint={`${s.description.length} / 2000`} />
+          </div>
+        </section>
+
+        <section className="adm-card">
+          <div className="adm-card__head"><div><h2>Photos</h2><p>The first photo is the cover. Tie photos to a colour to show them when that colour is picked.</p></div></div>
+          <div className="adm-card__body">
+            <ImageManager images={s.images} onChange={update => setS(prev => ({ ...prev, images: update(prev.images) }))}
+              colors={filters.colors.filter(c => s.colors.some(x => x.colorId === c.id))} supabase={supabase} productName={s.name || 'Product'} />
+          </div>
+        </section>
+
+        <section className="adm-card">
+          <div className="adm-card__head"><div><h2>Price</h2><p>Plain zero-power lenses are included in the frame price.</p></div></div>
+          <div className="adm-card__body adm-form">
+            <div className="adm-row adm-row--3">
+              <TextInput id="pPrice" label="Price" type="number" inputMode="numeric" min={0} step={10} prefix="Rs" value={s.price} onChange={e => set('price', e.target.value)} required error={errors.price} />
+              <TextInput id="pWas" label="Was price" type="number" inputMode="numeric" min={0} step={10} prefix="Rs" value={s.compareAt} onChange={e => set('compareAt', e.target.value)} error={errors.compareAt} hint="Optional, shown crossed out." />
+              <Field id="pTag" label="Label" hint="Optional, shown on the card.">
+                <input id="pTag" className="adm-input" list="pTags" value={s.tag} maxLength={24} onChange={e => set('tag', e.target.value)} placeholder="Bestseller" />
+                <datalist id="pTags">{TAGS.map(t => <option key={t} value={t} />)}</datalist>
+              </Field>
+            </div>
+          </div>
+        </section>
+
+        <section className="adm-card">
+          <div className="adm-card__head">
+            <div><h2>Filters</h2><p>Where the frame shows up in the shop&apos;s filters.</p></div>
+            <NextLink className="adm-btn adm-btn--ghost adm-btn--sm" href="/admin/filters">Edit filters</NextLink>
+          </div>
+          <div className="adm-card__body adm-form">
+            <div className="adm-row">
+              <Select id="pCat" label="Category" value={s.categoryId} onChange={e => set('categoryId', e.target.value)}>
+                <option value="">No category</option>
+                {filters.categories.map(c => <option key={c.id} value={c.id}>{c.name}{c.is_active ? '' : ' (hidden)'}</option>)}
+              </Select>
+              <Select id="pGender" label="For" value={s.gender} onChange={e => set('gender', e.target.value as Gender)}>
+                {(Object.keys(GENDER_LABEL) as Gender[]).map(g => <option key={g} value={g}>{GENDER_LABEL[g]}</option>)}
+              </Select>
+            </div>
+            <div className="adm-row">
+              <Select id="pShape" label="Shape" value={s.shapeId} onChange={e => set('shapeId', e.target.value)}>
+                <option value="">No shape</option>
+                {filters.shapes.map(x => <option key={x.id} value={x.id}>{x.name}{x.is_active ? '' : ' (hidden)'}</option>)}
+              </Select>
+              <Select id="pMat" label="Material" value={s.materialId} onChange={e => set('materialId', e.target.value)}>
+                <option value="">No material</option>
+                {filters.materials.map(x => <option key={x.id} value={x.id}>{x.name}{x.is_active ? '' : ' (hidden)'}</option>)}
+              </Select>
+            </div>
+            <div className="adm-field">
+              <span className="adm-field__label">Colours</span>
+              <div className="adm-chips" role="group" aria-label="Colours">
+                {filters.colors.map(c => {
+                  const fin = toColor(c).finish;
+                  return (
+                    <button key={c.id} className="adm-chip" type="button" aria-pressed={s.colors.some(x => x.colorId === c.id)} onClick={() => toggleColour(c.id)}>
+                      <span className="adm-swatch" style={vars({ '--sw': fin.swatch })} />{c.name}
+                    </button>
+                  );
+                })}
+              </div>
+              <small>{s.colors.length ? 'The first colour is shown first. Use the arrows to change the order.' : 'Pick at least one colour so customers can choose.'}</small>
+            </div>
+            {s.colors.length > 0 && (
+              <div className="adm-colour-list">
+                {s.colors.map((c, i) => {
+                  const row = filters.colors.find(x => x.id === c.colorId);
+                  if (!row) return null;
+                  return (
+                    <div className="adm-colour-row" key={c.colorId}>
+                      <span className="adm-swatch" style={vars({ '--sw': toColor(row).finish.swatch })} />
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <b className="text-sm">{i + 1}. {row.name}</b>
+                        {isCombo && (
+                          <select className="adm-select" style={{ width: 'auto' }} value={c.metalColorId ?? ''} aria-label={`Metal rim with ${row.name}`}
+                            onChange={e => setS(prev => ({ ...prev, colors: prev.colors.map(x => (x.colorId === c.colorId ? { ...x, metalColorId: e.target.value || null } : x)) }))}>
+                            <option value="">Gold rim (default)</option>
+                            {metalColours.map(m => <option key={m.id} value={m.id}>{m.name} rim</option>)}
+                          </select>
+                        )}
+                      </div>
+                      <span className="flex">
+                        <button className="adm-icon-btn" type="button" aria-label="Move up" disabled={i === 0} onClick={() => moveColour(i, -1)}><Icon name="arrowUp" /></button>
+                        <button className="adm-icon-btn" type="button" aria-label="Move down" disabled={i === s.colors.length - 1} onClick={() => moveColour(i, 1)}><Icon name="arrowDown" /></button>
+                        <button className="adm-icon-btn adm-icon-btn--danger" type="button" aria-label={`Remove ${row.name}`} onClick={() => toggleColour(c.colorId)}><Icon name="close" /></button>
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="adm-card">
+          <div className="adm-card__head">
+            <div><h2>Measurements</h2><p>In millimetres, as printed inside the arm (lens □ bridge temple).</p></div>
+            <button className="adm-btn adm-btn--ghost adm-btn--sm" type="button" onClick={useShapeSizes}>Use the shape&apos;s sizes</button>
+          </div>
+          <div className="adm-card__body">
+            <div className="adm-row adm-row--4">
+              <TextInput id="pA" label="Lens width" type="number" min={30} max={80} value={s.A} onChange={e => set('A', e.target.value)} hint="30 to 80" />
+              <TextInput id="pB" label="Lens height" type="number" min={20} max={70} value={s.B} onChange={e => set('B', e.target.value)} hint="20 to 70" />
+              <TextInput id="pD" label="Bridge" type="number" min={10} max={30} value={s.D} onChange={e => set('D', e.target.value)} hint="10 to 30" />
+              <TextInput id="pT" label="Temple" type="number" min={100} max={170} value={s.temple} onChange={e => set('temple', e.target.value)} hint="100 to 170" />
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div className="adm-grid" style={{ position: 'sticky', top: 'calc(var(--a-top) + 18px)' }}>
+        <section className="adm-card">
+          <div className="adm-card__head"><div><h2>Preview</h2><p>The drawing used when there is no photo, and in the Live Mirror.</p></div></div>
+          <div className="adm-card__body grid gap-3">
+            <div className="adm-preview"><FrameSvg product={preview} finish={shownColour} label={`${preview.name} drawing`} /></div>
+            {preview.finishes.length > 1 && (
+              <div className="adm-chips">
+                {preview.finishes.map(f => (
+                  <button key={f} type="button" className="adm-chip" aria-pressed={f === shownColour} onClick={() => setPreviewColour(f)}>
+                    <span className="adm-swatch" style={vars({ '--sw': finishOf(preview, f).swatch })} />{finishOf(preview, f).label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="flex items-baseline justify-between gap-2">
+              <b className="adm-serif text-2xl">{preview.name}</b>
+              <span className="adm-tnum font-semibold">{money(preview.price)}</span>
+            </div>
+            <span className="adm-small adm-muted">{[preview.labels.shape, preview.labels.material, GENDER_LABEL[preview.gender]].filter(Boolean).join(' · ')}</span>
+          </div>
+        </section>
+
+        <section className="adm-card">
+          <div className="adm-card__head"><div><h2>Visibility</h2></div></div>
+          <div className="adm-card__body grid gap-4">
+            <Switch checked={s.isActive} onChange={v => set('isActive', v)} label="Live in the shop" />
+            <Switch checked={s.inStock} onChange={v => set('inStock', v)} label="In stock" />
+            <Switch checked={s.isFeatured} onChange={v => set('isFeatured', v)} label="Feature on the home page" />
+            <TextInput id="pSort" label="Position" type="number" value={s.sortOrder} onChange={e => set('sortOrder', e.target.value)} hint="Lower numbers come first in the shop." />
+          </div>
+        </section>
+
+        {!isNew && (
+          <section className="adm-card">
+            <div className="adm-card__body grid gap-2">
+              {row.is_active && <a className="adm-btn adm-btn--ghost adm-btn--block" href={`/frame/${row.slug}`} target="_blank" rel="noopener"><Icon name="external" />View in the shop</a>}
+              <button className="adm-btn adm-btn--danger-ghost adm-btn--block" type="button" onClick={remove} disabled={pending}><Icon name="trash" />Delete product</button>
+            </div>
+          </section>
+        )}
+      </div>
+
+      <div className="adm-savebar" style={{ gridColumn: '1 / -1' }}>
+        <span className="adm-savebar__note">
+          {uploading ? 'Uploading photos…' : dirty ? 'You have unsaved changes.' : isNew ? 'Fill in the details, then save.' : 'All changes saved.'}
+        </span>
+        <div className="adm-savebar__btns">
+          <NextLink className="adm-btn adm-btn--ghost" href="/admin/products">{dirty ? 'Cancel' : 'Back'}</NextLink>
+          <button className="adm-btn" type="submit" disabled={pending || uploading || (!dirty && !isNew)}>
+            {pending ? 'Saving…' : isNew ? <><Icon name="plus" />Add product</> : <><Icon name="check" />Save changes</>}
+          </button>
+        </div>
+      </div>
+    </form>
+  );
+}

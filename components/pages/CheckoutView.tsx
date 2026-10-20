@@ -1,13 +1,15 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
-import { LENSES, money, productById, visionLabel } from '@/lib/catalog';
-import { cart, cartSubtotal, saveOrder, useCart, type CartItem, type Order } from '@/lib/cart';
-import { CONFIG } from '@/lib/config';
+import { LENSES, money, visionLabel } from '@/lib/catalog';
+import { cart, cartSubtotal, linePrice, saveOrder, useCart, type CartItem, type Order } from '@/lib/cart';
+import { CONFIG, whatsappHref } from '@/lib/config';
 import { useHydrated } from '@/lib/hooks';
+import { placeOrder } from '@/lib/shop-actions';
 import { validateForm } from '@/lib/validate';
+import { useCatalog } from '@/components/shell/CatalogProvider';
 import { Field } from '@/components/ui/Field';
-import { FrameSvg } from '@/components/ui/FrameSvg';
+import { ProductArt } from '@/components/ui/FrameSvg';
 import { Icon } from '@/components/ui/Icon';
 import { Link } from '@/components/ui/Link';
 import { Words } from '@/components/ui/Words';
@@ -23,12 +25,15 @@ export function CheckoutView() {
   const navigate = useNavigate();
   const hydrated = useHydrated();
   const cartItems = useCart();
+  const { byId } = useCatalog();
   const [placed, setPlaced] = useState<CartItem[] | null>(null);
   const [pay, setPay] = useState<Order['pay']>('cod');
   const [invalid, setInvalid] = useState<Set<string> | null>(null);
+  const [error, setError] = useState('');
+  const [sending, setSending] = useState(false);
   // Once the order is placed the bag empties; keep showing it while the next page opens.
   const items = placed ?? cartItems;
-  const total = cartSubtotal(items) + CONFIG.deliveryFee;
+  const total = cartSubtotal(items, byId) + CONFIG.deliveryFee;
 
   if (!hydrated) {
     return <section className="page-head pb-8"><div className="wrap"><Words as="h1" className="h1">Checkout</Words></div></section>;
@@ -46,17 +51,34 @@ export function CheckoutView() {
     );
   }
 
-  const submit = (e: FormEvent<HTMLFormElement>) => {
+  // Prescriptions are uploaded when a frame is added; one added before that needs adding again.
+  const missingRx = items.filter(i => i.vision === 'rx' && !i.rx?.path);
+
+  const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const bad = validateForm(e.currentTarget);
+    if (sending) return;
+    const form = e.currentTarget;
+    const bad = validateForm(form);
     setInvalid(bad);
     if (bad.size) return;
-    const data = new FormData(e.currentTarget);
-    const no = 'DO-' + Math.floor(100000 + Math.random() * 900000);
-    saveOrder({ no, pay, items, total, name: String(data.get('name')).trim(), phone: String(data.get('phone')).trim() });
+    const data = new FormData(form);
+    const get = (k: string) => String(data.get(k) ?? '').trim();
+    setError('');
+    setSending(true);
+    const res = await placeOrder({
+      name: get('name'), phone: get('phone'), email: get('email'), address: get('address'), city: get('city'), postcode: get('postcode'),
+      pay,
+      items: items.map(i => ({ productId: i.productId, finish: i.finish, vision: i.vision, lens: i.lens, qty: i.qty, rx: i.rx })),
+    }).catch(() => ({ ok: false as const, error: 'We could not reach the shop. Check your connection and try again.' }));
+    if (!res.ok) {
+      setError(res.error);
+      setSending(false);
+      return;
+    }
+    saveOrder({ no: res.orderNo, pay, items, total: res.total, name: get('name'), phone: get('phone') });
     setPlaced(items);
     cart.clear();
-    navigate('/order/' + no);
+    navigate('/order/' + res.orderNo);
   };
   const bad = (id: string) => invalid?.has(id);
 
@@ -90,24 +112,41 @@ export function CheckoutView() {
               </button>
             ))}
           </div>
-          {items.some(i => i.rx) && (
-            <p className="alert"><Icon name="info" /><span>Your prescription is sent with your order. Our optometrist checks it before your lenses are made.</span></p>
+          {items.some(i => i.rx) && !missingRx.length && (
+            <p className="alert"><Icon name="info" /><span>Your prescription is sent with your order. We check it before your lenses are made.</span></p>
           )}
-          <button className="btn btn--block mt-3" type="submit">Place order, {money(total)}</button>
+          {missingRx.map(i => (
+            <p className="alert" key={i.key} role="alert">
+              <Icon name="info" />
+              <span>
+                The prescription for {byId.get(i.productId)?.name ?? 'a frame'} needs adding again.{' '}
+                <Link className="link" href={`/frame/${i.productId}?finish=${i.finish}`}>Open the frame</Link>, add it to your bag with your prescription, then remove the old one.
+              </span>
+            </p>
+          ))}
+          {error && (
+            <p className="alert" role="alert">
+              <Icon name="info" />
+              <span>{error} <a className="link" href={whatsappHref} target="_blank" rel="noopener">WhatsApp us</a> if it keeps happening.</span>
+            </p>
+          )}
+          <button className="btn btn--block mt-3" type="submit" disabled={sending || missingRx.length > 0} aria-disabled={sending || missingRx.length > 0}>
+            {sending ? 'Placing your order…' : `Place order, ${money(total)}`}
+          </button>
         </form>
 
         <aside className="side-sum">
           <div className="summary">
             {items.map(i => {
-              const p = productById(i.productId);
+              const p = byId.get(i.productId);
               if (!p) return null;
               return (
                 <div className="mini border-b-line-2" key={i.key}>
-                  <div className="mini__art bg-white"><FrameSvg product={p} finish={i.finish} /></div>
+                  <div className="mini__art bg-white"><ProductArt product={p} finish={i.finish} sizes="120px" /></div>
                   <div>
                     <h3>{p.name}{i.qty > 1 ? ` × ${i.qty}` : ''}</h3>
                     <p>{visionLabel(i.vision)}, {LENSES[i.lens].label}</p>
-                    <b className="tnum">{money(i.unit * i.qty)}</b>
+                    <b className="tnum">{money(linePrice(i, p) * i.qty)}</b>
                   </div>
                 </div>
               );

@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { FINISHES, PRODUCTS, SHAPES, money, productById, type FinishKey, type Product } from '@/lib/catalog';
+import { finishOf, money, pickFinish, type Product } from '@/lib/catalog';
 import { cx } from '@/lib/css';
 import { MirrorEngine, isInFrame, type MirrorMode, type PanelKind, type Selection, type Shot } from '@/lib/mirror/engine';
 import { close, open } from '@/lib/overlay';
+import { useCatalog } from '@/components/shell/CatalogProvider';
 import { FrameSvg } from '@/components/ui/FrameSvg';
 import { Icon } from '@/components/ui/Icon';
 import { Link } from '@/components/ui/Link';
@@ -12,16 +13,15 @@ import { LogoPartSvg } from '@/components/ui/Logo';
 import { Swatches } from '@/components/ui/Swatches';
 import type { MirrorRequest } from '@/components/shell/MirrorHost';
 
-const pickFinish = (p: Product, wanted?: FinishKey, current?: FinishKey) =>
-  wanted && p.finishes.includes(wanted) ? wanted : current && p.finishes.includes(current) ? current : p.finishes[0];
-
 /** The Live Mirror: frames drawn on your face through the camera, or on a photo. */
 export default function LiveMirror({ request }: { request: MirrorRequest }) {
+  const { products: PRODUCTS, byId } = useCatalog();
+  const productById = (id: string) => byId.get(id);
   const first = productById(request.productId) ?? PRODUCTS[0];
   const [nonce, setNonce] = useState(request.nonce);
   const [isOpen, setIsOpen] = useState(true);
   const [product, setProduct] = useState<Product>(first);
-  const [finish, setFinish] = useState<FinishKey>(pickFinish(first, request.finish));
+  const [finish, setFinish] = useState<string>(pickFinish(first, request.finish));
   const [fit, setFit] = useState(100);
   const [mode, setMode] = useState<MirrorMode>('idle');
   const [panel, setPanel] = useState<PanelKind | null>(null);
@@ -137,7 +137,7 @@ export default function LiveMirror({ request }: { request: MirrorRequest }) {
           <LogoPartSvg part="emblem" />
           <div>
             <b id="mName">{product.name}</b>
-            <span>{SHAPES[product.shape].label}, {FINISHES[finish].label}, {money(product.price)}</span>
+            <span>{product.labels.shape}, {finishOf(product, finish).label}, {money(product.price)}</span>
           </div>
         </div>
         <button className="mirror__close" type="button" aria-label="Close the Live Mirror" onClick={() => close(root.current!)}>
@@ -195,15 +195,15 @@ export default function LiveMirror({ request }: { request: MirrorRequest }) {
       <div className="mirror__bottom">
         <div className="mirror__tray" ref={tray} role="group" aria-label="Frames">
           {PRODUCTS.map(p => (
-            <button key={p.id} className="thumb" type="button" aria-pressed={p.id === product.id} aria-label={`${p.name}, ${SHAPES[p.shape].label}`} onClick={() => choose(p)}>
-              <FrameSvg product={p} finish={p.finishes[0]} lens={false} />
+            <button key={p.id} className="thumb" type="button" aria-pressed={p.id === product.id} aria-label={`${p.name}, ${p.labels.shape}`} onClick={() => choose(p)}>
+              <FrameSvg product={p} finish={p.finishes[0] ?? ''} lens={false} />
               <b>{p.name}</b>
             </button>
           ))}
         </div>
         <div className="mirror__controls">
           <div className="mirror__left">
-            <Swatches finishes={product.finishes} active={finish} onPick={setFinish} />
+            <Swatches product={product} active={finish} onPick={setFinish} />
             <label className="fit">
               <span>Size</span>
               <input type="range" min="84" max="116" value={fit} aria-label="Frame size on your face" onChange={e => setFit(Number(e.target.value))} />

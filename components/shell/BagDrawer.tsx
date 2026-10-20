@@ -1,22 +1,24 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { FINISHES, LENSES, money, productById, visionLabel } from '@/lib/catalog';
-import { cartSubtotal, useCart, type CartItem } from '@/lib/cart';
+import { LENSES, finishOf, money, visionLabel } from '@/lib/catalog';
+import { cartSubtotal, linePrice, useCart, type CartItem } from '@/lib/cart';
 import { cx } from '@/lib/css';
 import { close, open } from '@/lib/overlay';
 import { onUI } from '@/lib/ui-events';
-import { FrameSvg } from '@/components/ui/FrameSvg';
+import { ProductArt } from '@/components/ui/FrameSvg';
 import { Icon } from '@/components/ui/Icon';
 import { Link } from '@/components/ui/Link';
+import { useCatalog } from './CatalogProvider';
 
 /** "Added to your bag": slides in after a frame is added. */
 export function BagDrawer() {
   const drawer = useRef<HTMLElement>(null);
+  const { byId } = useCatalog();
   const [item, setItem] = useState<CartItem | null>(null);
   const [isOpen, setIsOpen] = useState(false);
-  const subtotal = cartSubtotal(useCart());
-  const p = item && productById(item.productId);
+  const subtotal = cartSubtotal(useCart(), byId);
+  const p = item && byId.get(item.productId);
 
   useEffect(() => onUI('drawer', added => {
     setItem(added);
@@ -34,15 +36,15 @@ export function BagDrawer() {
         {item && p && (
           <>
             <div className="mini">
-              <div className="mini__art"><FrameSvg product={p} finish={item.finish} /></div>
+              <div className="mini__art"><ProductArt product={p} finish={item.finish} sizes="120px" /></div>
               <div>
                 <h3>{p.name}</h3>
                 <p>
-                  {FINISHES[item.finish].label}<br />
+                  {finishOf(p, item.finish).label}<br />
                   {visionLabel(item.vision)}, {LENSES[item.lens].label} lenses
                   {item.rx && <><br />Prescription: {item.rx.name}</>}
                 </p>
-                <b>{money(item.unit)}</b>
+                <b>{money(linePrice(item, p))}</b>
               </div>
             </div>
             <p className="small muted pt-3.5">Bag total: <b className="text-black">{money(subtotal)}</b></p>

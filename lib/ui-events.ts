@@ -1,4 +1,3 @@
-import type { FinishKey } from './catalog';
 import type { CartItem } from './cart';
 import type { IconName } from './icons';
 
@@ -11,7 +10,7 @@ import type { IconName } from './icons';
 interface UIEvents {
   toast: { message: string; icon: IconName };
   drawer: CartItem;
-  mirror: { productId: string; finish?: FinishKey };
+  mirror: { productId: string; finish?: string };
   mirrorPreload: undefined;
 }
 
@@ -32,5 +31,5 @@ export function onUI<K extends keyof UIEvents>(type: K, handler: Handler<K>) {
 
 export const showToast = (message: string, icon: IconName = 'check') => emit('toast', { message, icon });
 export const openDrawer = (item: CartItem) => emit('drawer', item);
-export const openMirror = (productId: string, finish?: FinishKey) => emit('mirror', { productId, finish });
+export const openMirror = (productId: string, finish?: string) => emit('mirror', { productId, finish });
 export const preloadMirror = () => emit('mirrorPreload', undefined);
