@@ -6,15 +6,20 @@ export const CONFIG = {
   legalName: "Dr's Opticals",
   currency: 'Rs', // shown before every price
   currencyCode: 'PKR', // ISO 4217 code used in structured data
-  phone: '+92 300 0000000',
-  whatsapp: '923000000000', // international format, digits only
-  email: 'care@drsopticals.com',
+  phone: '+92 324 4133872',
+  whatsapp: '923244133872', // international format, digits only
+  email: 'dropticalsinquiry@gmail.com',
   address: 'Your shop address, City',
   country: 'PK',
   hours: 'Monday to Saturday, 11am to 9pm',
   openingHours: 'Mo-Sa 11:00-21:00', // schema.org format of `hours`
   deliveryFee: 0, // 0 shows as "Free"
-  social: { instagram: '#', facebook: '#', tiktok: '#' },
+  social: {
+    instagram: 'https://www.instagram.com/dr_s_opticals',
+    facebook: 'https://www.facebook.com/share/1FRF8Xboqa/',
+    tiktok: 'https://www.tiktok.com/@drs.opticals',
+    youtube: 'https://www.youtube.com/@DrsOpticals',
+  },
 } as const;
 
 export const SITE = {

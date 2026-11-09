@@ -64,6 +64,7 @@ export const organizationLd = {
   currenciesAccepted: CONFIG.currencyCode,
   paymentAccepted: 'Cash, Bank transfer',
   priceRange: '$$',
+  sameAs: Object.values(CONFIG.social),
 };
 
 export const websiteLd = {
