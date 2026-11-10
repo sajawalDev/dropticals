@@ -287,6 +287,58 @@
   .adm-image__tools .adm-icon-btn { width: 30px; height: 30px; border-radius: 8px; }
   .adm-image__tools .adm-icon-btn svg { width: 16px; height: 16px; }
 
+  /* ---------- try-on photos ---------- */
+  .adm-tryon { display: grid; gap: 12px; }
+  .adm-tryon__top { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px 20px; }
+  .adm-tryon__top .adm-field { flex: 1 1 260px; max-width: 420px; }
+  .adm-tryon__top > .adm-btn { margin-top: 26px; }
+  .adm-affix--end > span { left: auto; right: 14px; }
+  .adm-affix--end .adm-input { padding-left: 14px; padding-right: 48px; }
+  .adm-tryon__notice { display: flex; gap: 10px; align-items: flex-start; padding: 14px 16px; border-radius: 12px; background: #fef3c7; color: #92400e; font-size: .875rem; }
+  .adm-tryon__notice svg { width: 20px; height: 20px; flex: none; margin-top: 1px; }
+  .adm-tryon__row { border: 1px solid var(--a-line); border-radius: 14px; }
+  .adm-tryon__head { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 14px; text-align: left; border-radius: 14px; }
+  .adm-tryon__head:hover { background: var(--a-hover); }
+  .adm-tryon__head b { font-size: .9375rem; margin-right: auto; }
+  .adm-tryon__chev { width: 18px; height: 18px; color: var(--a-ink-3); transition: transform .2s; }
+  .adm-tryon__chev.open { transform: rotate(180deg); }
+  .adm-tryon__body { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; padding: 4px 14px 16px; }
+  .adm-tryon__pane { display: grid; gap: 10px; align-content: start; min-width: 0; }
+  .adm-tryon__label { display: flex; align-items: baseline; gap: 8px; }
+  .adm-tryon__label span { font-size: .75rem; color: var(--a-ink-3); }
+  .adm-tryon__pic {
+    position: relative; width: 100%; border-radius: 12px; overflow: hidden; border: 1px solid var(--a-line);
+    background: repeating-conic-gradient(#ececec 0 25%, #fff 0 50%) 0 0 / 14px 14px; touch-action: none; user-select: none;
+  }
+  .adm-tryon__pic img { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+  .adm-tryon__line { position: absolute; z-index: 1; }
+  .adm-tryon__line::after { content: ""; position: absolute; }
+  .adm-tryon__line--h { left: 0; right: 0; height: 20px; margin-top: -10px; cursor: ns-resize; }
+  .adm-tryon__line--h::after { left: 0; right: 0; top: 9px; border-top: 2px dashed #e11d48; }
+  .adm-tryon__line--v { top: 0; bottom: 0; width: 20px; margin-left: -10px; cursor: ew-resize; }
+  .adm-tryon__line--v::after { top: 0; bottom: 0; left: 9px; border-left: 2px dashed #2563eb; }
+  .adm-tryon__line:focus-visible { outline: none; background: rgba(0, 0, 0, .06); }
+  .adm-tryon__mark { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: #16a34a; box-shadow: 0 0 0 2px #fff; pointer-events: none; }
+  .adm-tryon__busy { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; background: rgba(255, 255, 255, .8); font-size: .8125rem; font-weight: 600; }
+  .adm-tryon__note { font-size: .8125rem; color: var(--a-ink-3); }
+  .adm-tryon__note--warn { color: #b45309; }
+  .adm-tryon__key { display: inline-block; width: 18px; vertical-align: middle; }
+  .adm-tryon__key--h { border-top: 2px dashed #e11d48; }
+  .adm-tryon__key--v { border-top: 2px dashed #2563eb; }
+  .adm-tryon__slider { display: grid; gap: 4px; font-size: .8125rem; font-weight: 600; }
+  .adm-tryon__slider input { width: 100%; accent-color: var(--a-ink); }
+  .adm-tryon__slider small { font-weight: 400; font-size: .75rem; color: var(--a-ink-3); }
+  .adm-tryon__btns { display: flex; flex-wrap: wrap; gap: 8px; }
+  .adm-tryon__file { position: relative; overflow: hidden; }
+  .adm-tryon__file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+  .adm-tryon__file.is-disabled { opacity: .5; pointer-events: none; }
+  .adm-tryon-test { position: relative; aspect-ratio: 4 / 3; border-radius: 14px; overflow: hidden; background: #0c0c0c; }
+  .adm-tryon-test canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; touch-action: none; }
+  .adm-tryon-test video { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  .adm-tryon-test__msg { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: #fff; font-size: .9375rem; }
+  .adm-tryon-test__status { position: absolute; left: 12px; bottom: 12px; padding: 5px 12px; border-radius: 999px; background: rgba(0, 0, 0, .6); color: #fff; font-size: .75rem; font-weight: 600; }
+  .adm-tryon-test__controls { display: grid; gap: 12px; margin-top: 14px; }
+
   /* ---------- sticky save bar ---------- */
   .adm-savebar {
     position: sticky; bottom: 0; z-index: 30; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;

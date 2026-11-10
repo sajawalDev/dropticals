@@ -1,6 +1,9 @@
 import 'server-only';
 import type { AnnouncementRow } from '@/lib/announcements';
-import { PRODUCT_COLUMNS, type CategoryRow, type ColorRow, type FilterRows, type MaterialRow, type ProductRow, type ShapeRow } from '@/lib/catalog-build';
+import {
+  isMissingTable, PRODUCT_COLUMNS, TRYON_COLUMNS,
+  type CategoryRow, type ColorRow, type FilterRows, type MaterialRow, type ProductRow, type ProductTryOnRow, type ShapeRow,
+} from '@/lib/catalog-build';
 import { adminDb, RX_BUCKET } from '@/lib/supabase/server';
 import { dbMessage } from './guard';
 import { isOrderStatus, type OrderItemRow, type OrderRow, type OrderStatus, type Stats } from './types';
@@ -38,6 +41,20 @@ export async function getAdminProducts(): Promise<ProductRow[]> {
 export async function getAdminProduct(id: string): Promise<ProductRow | null> {
   const res = await adminDb().from('products').select(PRODUCT_COLUMNS).eq('id', id).maybeSingle();
   return check(res) as unknown as ProductRow | null;
+}
+
+/**
+ * A product's try-on photos. `ready` is false until the product_tryons table
+ * exists (supabase/schema.sql has not been run again since it was added).
+ */
+export async function getAdminTryOns(productId: string | null): Promise<{ rows: ProductTryOnRow[]; ready: boolean }> {
+  const query = adminDb().from('product_tryons').select(TRYON_COLUMNS);
+  const res = productId ? await query.eq('product_id', productId) : await query.limit(0);
+  if (res.error) {
+    if (isMissingTable(res.error)) return { rows: [], ready: false };
+    throw new DataError(dbMessage(res.error, 'try-on photo'));
+  }
+  return { rows: (res.data ?? []) as ProductTryOnRow[], ready: true };
 }
 
 /** How many products use each filter value, by its id. */

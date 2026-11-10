@@ -1,7 +1,7 @@
 'use server';
 
 import { GENDER_LABEL } from '@/lib/catalog';
-import { slugify } from '@/lib/catalog-build';
+import { isMissingTable, slugify, type ProductTryOnRow } from '@/lib/catalog-build';
 import { adminDb, PRODUCT_BUCKET } from '@/lib/supabase/server';
 import { asAdmin, dbMessage, fail, int, isUuid, refresh, str, type ActionResult } from '../guard';
 
@@ -40,6 +40,18 @@ export interface ProductInput {
   sortOrder: number;
   colors: { colorId: string; metalColorId: string | null }[];
   images: ProductImageInput[];
+  /** Live Mirror photos, one set per colour. Left out, the saved ones are kept as they are. */
+  tryons?: TryOnInput[];
+}
+
+export interface TryOnInput {
+  colorId: string;
+  front: { path: string; width: number; height: number };
+  widthMm: number;
+  lensY: number;
+  centerX: number;
+  hingeY: number;
+  side: { path: string; width: number; height: number; y: number } | null;
 }
 
 const IMAGE_PATH = /^products\/\d{4}-\d{2}\/[0-9a-f-]{36}\.(jpg|jpeg|png|webp|avif|gif)$/;
@@ -51,15 +63,68 @@ const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 const publicUrl = (path: string) => adminDb().storage.from(PRODUCT_BUCKET).getPublicUrl(path).data.publicUrl;
 
-/** Files no product photo points at any more are removed from storage. */
+/** Files no product photo or try-on photo points at any more are removed from storage. */
 async function removeUnusedFiles(paths: string[]) {
   const candidates = [...new Set(paths.filter(p => IMAGE_PATH.test(p)))];
   if (!candidates.length) return;
   const db = adminDb();
-  const { data } = await db.from('product_images').select('path').in('path', candidates);
-  const used = new Set((data ?? []).map(r => r.path));
+  const [photos, fronts, sides] = await Promise.all([
+    db.from('product_images').select('path').in('path', candidates),
+    db.from('product_tryons').select('front_path').in('front_path', candidates),
+    db.from('product_tryons').select('side_path').in('side_path', candidates),
+  ]);
+  // When in doubt, keep the files: a stray file costs little, a missing photo breaks the shop.
+  if (photos.error) return;
+  for (const r of [fronts, sides]) if (r.error && !isMissingTable(r.error)) return;
+  const used = new Set<string>([
+    ...(photos.data ?? []).map(r => r.path),
+    ...(fronts.data ?? []).map(r => r.front_path),
+    ...(sides.data ?? []).map(r => r.side_path),
+  ]);
   const unused = candidates.filter(p => !used.has(p));
   if (unused.length) await db.storage.from(PRODUCT_BUCKET).remove(unused);
+}
+
+const share = (v: unknown, fallback: number) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : fallback;
+};
+const px = (v: unknown) => int(v, 1, 20000, 0);
+
+/** Checks the try-on photos sent with a product. Returns an error message, or the rows to save. */
+function cleanTryOns(list: unknown, colourIds: Set<string>): string | Omit<ProductTryOnRow, 'product_id' | 'front_url' | 'side_url' | 'updated_at'>[] {
+  const rows = [];
+  const seen = new Set<string>();
+  for (const t of (Array.isArray(list) ? list : []).slice(0, 30) as TryOnInput[]) {
+    if (!isUuid(t?.colorId) || !colourIds.has(t.colorId) || seen.has(t.colorId)) continue;
+    seen.add(t.colorId);
+    if (!IMAGE_PATH.test(String(t.front?.path)) || !/\.(png|webp)$/.test(t.front.path)) return 'A try-on photo was not uploaded properly. Upload it again.';
+    if (!px(t.front.width) || !px(t.front.height)) return 'A try-on photo is missing its size. Upload it again.';
+    const widthMm = Number(t.widthMm);
+    if (!(widthMm >= 80 && widthMm <= 200)) return 'Enter the frame width for the try-on, between 80 and 200 mm.';
+    let side = null;
+    if (t.side) {
+      if (!IMAGE_PATH.test(String(t.side.path)) || !/\.(png|webp)$/.test(t.side.path) || !px(t.side.width) || !px(t.side.height)) {
+        return 'A side photo was not uploaded properly. Upload it again.';
+      }
+      side = t.side;
+    }
+    rows.push({
+      color_id: t.colorId,
+      front_path: t.front.path,
+      front_width: px(t.front.width),
+      front_height: px(t.front.height),
+      frame_width: Math.round(widthMm * 10) / 10,
+      lens_y: share(t.lensY, 0.5),
+      center_x: share(t.centerX, 0.5),
+      hinge_y: share(t.hingeY, 0.35),
+      side_path: side?.path ?? null,
+      side_width: side ? px(side.width) : null,
+      side_height: side ? px(side.height) : null,
+      side_y: side ? share(side.y, 0.3) : null,
+    });
+  }
+  return rows;
 }
 
 /** A one-time link to upload a product photo straight to storage. */
@@ -106,6 +171,15 @@ export async function saveProduct(input: ProductInput): Promise<ActionResult<{ i
     for (const img of images) {
       if (!IMAGE_PATH.test(String(img?.path))) return fail('One of the photos was not uploaded properly. Remove it and upload it again.');
     }
+    const tryons = input.tryons === undefined ? null : cleanTryOns(input.tryons, new Set(colours.map(c => c.colorId)));
+    if (typeof tryons === 'string') return fail(tryons);
+
+    const db = adminDb();
+    // Check the try-on table is there before changing anything, so a half-saved product never happens.
+    if (tryons?.length) {
+      const { error } = await db.from('product_tryons').select('product_id').limit(1);
+      if (error) return fail(isMissingTable(error) ? 'Try-on photos need a database update: run supabase/schema.sql again in the Supabase SQL Editor, then save.' : dbMessage(error));
+    }
 
     const row = {
       name,
@@ -129,7 +203,6 @@ export async function saveProduct(input: ProductInput): Promise<ActionResult<{ i
       sort_order: int(input.sortOrder, -100000, 100000, 0),
     };
 
-    const db = adminDb();
     let id = isUuid(input.id) ? input.id : '';
     if (id) {
       const { error } = await db.from('products').update(row).eq('id', id);
@@ -170,7 +243,33 @@ export async function saveProduct(input: ProductInput): Promise<ActionResult<{ i
         : await db.from('product_images').insert({ ...fields, product_id: id, path: img.path, url: publicUrl(img.path) });
       if (error) return fail(dbMessage(error, 'photo'));
     }
-    await removeUnusedFiles(removed.map(r => r.path));
+
+    // Try-on photos: one row per colour. Colours left out lose theirs.
+    const replaced: string[] = [];
+    if (tryons) {
+      const { data: before, error: readError } = await db.from('product_tryons').select('color_id, front_path, side_path').eq('product_id', id);
+      if (readError && !isMissingTable(readError)) return fail(dbMessage(readError, 'try-on photo'));
+      if (!readError) {
+        const keepColours = tryons.map(t => t.color_id);
+        const gone = (before ?? []).filter(b => !keepColours.includes(b.color_id));
+        if (gone.length) {
+          const { error } = await db.from('product_tryons').delete().eq('product_id', id).in('color_id', gone.map(g => g.color_id));
+          if (error) return fail(dbMessage(error, 'try-on photo'));
+        }
+        if (tryons.length) {
+          const { error } = await db.from('product_tryons').upsert(tryons.map(t => ({
+            ...t,
+            product_id: id,
+            front_url: publicUrl(t.front_path),
+            side_url: t.side_path ? publicUrl(t.side_path) : null,
+            updated_at: new Date().toISOString(),
+          })), { onConflict: 'product_id,color_id' });
+          if (error) return fail(dbMessage(error, 'try-on photo'));
+        }
+        for (const b of before ?? []) replaced.push(b.front_path, ...(b.side_path ? [b.side_path] : []));
+      }
+    }
+    await removeUnusedFiles([...removed.map(r => r.path), ...replaced]);
 
     // Touch the product so every screen hears about colour and photo changes too.
     await db.from('products').update({ updated_at: new Date().toISOString() }).eq('id', id);
@@ -183,10 +282,16 @@ export async function deleteProduct(id: string): Promise<ActionResult> {
   return asAdmin(async () => {
     if (!isUuid(id)) return fail('That product was not found.');
     const db = adminDb();
-    const { data: images } = await db.from('product_images').select('path').eq('product_id', id);
+    const [{ data: images }, { data: tryons }] = await Promise.all([
+      db.from('product_images').select('path').eq('product_id', id),
+      db.from('product_tryons').select('front_path, side_path').eq('product_id', id),
+    ]);
     const { error } = await db.from('products').delete().eq('id', id);
     if (error) return fail(dbMessage(error, 'product'));
-    await removeUnusedFiles((images ?? []).map(i => i.path));
+    await removeUnusedFiles([
+      ...(images ?? []).map(i => i.path),
+      ...(tryons ?? []).flatMap(t => [t.front_path, t.side_path].filter((p): p is string => !!p)),
+    ]);
     refresh({ shop: true });
     return { ok: true };
   });

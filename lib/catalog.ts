@@ -202,6 +202,31 @@ export interface ProductImage {
   height: number | null;
 }
 
+/** A cut-out photo with a transparent background, for the Live Mirror. */
+export interface TryOnImage {
+  url: string;
+  width: number;
+  height: number;
+}
+
+/**
+ * A frame's try-on photos in one colour. The front photo is cropped to the frame's
+ * outer edges, so its width is `widthMm` in real life.
+ */
+export interface TryOn {
+  front: TryOnImage;
+  /** Real width of the front, outer edge to outer edge, in millimetres. */
+  widthMm: number;
+  /** Height of the lens centres, as a share of the front photo's height. */
+  lensY: number;
+  /** The middle of the bridge, as a share of the front photo's width. */
+  centerX: number;
+  /** Height of the hinges, as a share of the front photo's height. */
+  hingeY: number;
+  /** The arm from the side, front end on the left. `y` is where it meets the front, as a share of its height. */
+  side: (TryOnImage & { y: number }) | null;
+}
+
 export interface Product {
   /** The URL slug, also used in the bag. */
   id: string;
@@ -229,6 +254,8 @@ export interface Product {
   inStock: boolean;
   featured: boolean;
   images: ProductImage[];
+  /** Try-on photos by colour slug. Colours without one are drawn in the Live Mirror. */
+  tryon: Record<string, TryOn>;
   /** How the drawing engine draws this frame. */
   look: { shape: BaseShape; material: BaseMaterial };
   /** Every finish the drawings of this frame may use, by colour slug. */
@@ -260,6 +287,9 @@ export const finishOf = (p: Product, key: string): Finish =>
 /** The colour a frame should show: the one asked for when the frame comes in it, else its first. */
 export const pickFinish = (p: Product, wanted?: string | null, current?: string | null) =>
   wanted && p.finishes.includes(wanted) ? wanted : current && p.finishes.includes(current) ? current : p.finishes[0] ?? '';
+
+/** The try-on photos of a frame in a colour, if it has them. */
+export const tryOnFor = (p: Product, finish: string): TryOn | null => p.tryon?.[finish] ?? null;
 
 /** The photo to show for a colour: one taken in that colour, else the first photo. */
 export const imageFor = (p: Product, finish?: string | null): ProductImage | null =>

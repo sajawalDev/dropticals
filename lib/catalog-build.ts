@@ -1,7 +1,7 @@
 import {
   GENDER_LABEL, isBaseMaterial, isBaseShape, makeFinish,
   type Catalog, type CategoryOption, type ColorOption, type Finish, type FinishStyle, type Gender,
-  type MaterialOption, type Product, type ShapeOption,
+  type MaterialOption, type Product, type ShapeOption, type TryOn,
 } from './catalog';
 
 /* =========================================================
@@ -25,6 +25,60 @@ export interface ProductImageRow {
   width: number | null;
   height: number | null;
   sort_order: number;
+}
+
+/** A row of public.product_tryons: the Live Mirror photos of a product in one colour. */
+export interface ProductTryOnRow {
+  product_id: string;
+  color_id: string;
+  front_path: string;
+  front_url: string;
+  front_width: number;
+  front_height: number;
+  frame_width: number;
+  lens_y: number;
+  center_x: number;
+  hinge_y: number;
+  side_path: string | null;
+  side_url: string | null;
+  side_width: number | null;
+  side_height: number | null;
+  side_y: number | null;
+  updated_at?: string;
+}
+
+/** Columns selected for try-on photos. They are read on their own, so a database without the table still works. */
+export const TRYON_COLUMNS =
+  'product_id, color_id, front_path, front_url, front_width, front_height, frame_width, lens_y, center_x, hinge_y, side_path, side_url, side_width, side_height, side_y, updated_at';
+
+/** True when an error only means the try-on table has not been created yet. */
+export const isMissingTable = (e: { code?: string; message?: string } | null | undefined) =>
+  !!e && (e.code === '42P01' || e.code === 'PGRST205' || /does not exist|schema cache/i.test(e.message ?? ''));
+
+/** Puts each product's try-on rows on it. */
+export function withTryOns<T extends ProductRow>(products: T[], tryons: ProductTryOnRow[]): T[] {
+  const by = new Map<string, ProductTryOnRow[]>();
+  for (const t of tryons) by.set(t.product_id, [...(by.get(t.product_id) ?? []), t]);
+  return products.map(p => ({ ...p, product_tryons: by.get(p.id) ?? [] }));
+}
+
+const frac = (v: unknown, fallback: number) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : fallback;
+};
+
+/** A try-on row as the Live Mirror uses it. */
+export function toTryOn(t: ProductTryOnRow): TryOn {
+  return {
+    front: { url: t.front_url, width: t.front_width, height: t.front_height },
+    widthMm: Number(t.frame_width) || 140,
+    lensY: frac(t.lens_y, 0.5),
+    centerX: frac(t.center_x, 0.5),
+    hingeY: frac(t.hinge_y, 0.35),
+    side: t.side_url && t.side_width && t.side_height
+      ? { url: t.side_url, width: t.side_width, height: t.side_height, y: frac(t.side_y, 0.3) }
+      : null,
+  };
 }
 
 export interface ProductRow {
@@ -52,6 +106,7 @@ export interface ProductRow {
   updated_at?: string;
   product_colors?: ProductColorRow[];
   product_images?: ProductImageRow[];
+  product_tryons?: ProductTryOnRow[];
 }
 
 export interface FilterRows {
@@ -130,6 +185,13 @@ export function buildProduct(r: ProductRow, lk: Lookups): Product {
     .sort((a, b) => a.sort_order - b.sort_order)
     .map(i => ({ id: i.id, url: i.url, alt: i.alt, color: colourSlug(i.color_id), width: i.width, height: i.height }));
 
+  // Try-on photos, only for colours the frame comes in.
+  const tryon: Record<string, TryOn> = {};
+  for (const t of r.product_tryons ?? []) {
+    const slug = colourSlug(t.color_id);
+    if (slug && finishes.includes(slug)) tryon[slug] = toTryOn(t);
+  }
+
   const look = {
     shape: shape && isBaseShape(shape.base) ? shape.base : 'round' as const,
     material: material && isBaseMaterial(material.base) ? material.base : 'acetate' as const,
@@ -157,6 +219,7 @@ export function buildProduct(r: ProductRow, lk: Lookups): Product {
     inStock: r.in_stock,
     featured: r.is_featured,
     images,
+    tryon,
     look,
     palette,
     labels: {

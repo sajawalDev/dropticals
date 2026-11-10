@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { finishOf, money, pickFinish, type Product } from '@/lib/catalog';
+import { finishOf, money, pickFinish, tryOnFor, type Product } from '@/lib/catalog';
 import { cx } from '@/lib/css';
 import { MirrorEngine, isInFrame, type MirrorMode, type PanelKind, type Selection, type Shot } from '@/lib/mirror/engine';
+import { preloadTryOns } from '@/lib/mirror/tryon';
 import { close, open } from '@/lib/overlay';
 import { useCatalog } from '@/components/shell/CatalogProvider';
 import { FrameSvg } from '@/components/ui/FrameSvg';
@@ -100,6 +101,16 @@ export default function LiveMirror({ request }: { request: MirrorRequest }) {
     };
   }, [nonce]);
 
+  // Load the try-on photos of this frame's colours, and of the frames either side, before they are picked.
+  useEffect(() => {
+    const i = PRODUCTS.indexOf(product), n = PRODUCTS.length;
+    const near = n ? [PRODUCTS[(i + 1) % n], PRODUCTS[(i + n - 1) % n]] : [];
+    preloadTryOns([
+      ...product.finishes.map(f => tryOnFor(product, f)),
+      ...near.map(p => p && tryOnFor(p, p.finishes[0] ?? '')),
+    ]);
+  }, [product, PRODUCTS]);
+
   // Keep the chosen frame in view in the tray.
   useEffect(() => {
     tray.current?.querySelector('[aria-pressed="true"]')?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
@@ -194,12 +205,18 @@ export default function LiveMirror({ request }: { request: MirrorRequest }) {
 
       <div className="mirror__bottom">
         <div className="mirror__tray" ref={tray} role="group" aria-label="Frames">
-          {PRODUCTS.map(p => (
-            <button key={p.id} className="thumb" type="button" aria-pressed={p.id === product.id} aria-label={`${p.name}, ${p.labels.shape}`} onClick={() => choose(p)}>
-              <FrameSvg product={p} finish={p.finishes[0] ?? ''} lens={false} />
-              <b>{p.name}</b>
-            </button>
-          ))}
+          {PRODUCTS.map(p => {
+            const photo = tryOnFor(p, p.finishes[0] ?? '');
+            return (
+              <button key={p.id} className="thumb" type="button" aria-pressed={p.id === product.id} aria-label={`${p.name}, ${p.labels.shape}`} onClick={() => choose(p)}>
+                {photo
+                  // eslint-disable-next-line @next/next/no-img-element -- the cut-out try-on photo; same request the mirror canvas uses
+                  ? <img className="thumb__photo" src={photo.front.url} alt="" crossOrigin="anonymous" loading="lazy" decoding="async" />
+                  : <FrameSvg product={p} finish={p.finishes[0] ?? ''} lens={false} />}
+                <b>{p.name}</b>
+              </button>
+            );
+          })}
         </div>
         <div className="mirror__controls">
           <div className="mirror__left">

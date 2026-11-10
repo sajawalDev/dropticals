@@ -9,7 +9,7 @@
 -- What it sets up:
 --   1. Admin accounts, login attempts and admin settings
 --   2. Filters: categories, shapes, materials, colours
---   3. Products, product colours and product photos
+--   3. Products, product colours, product photos and try-on photos
 --   4. The announcement bar at the top of the site
 --   5. Orders and order items
 --   6. Row level security (customers read the catalogue only;
@@ -194,6 +194,35 @@ create table if not exists public.product_images (
   created_at timestamptz not null default now()
 );
 create index if not exists product_images_product_idx on public.product_images (product_id, sort_order);
+
+-- Try-on photos for the Live Mirror: one cut-out front photo per product colour,
+-- and optionally a side photo of the arm. The dashboard cuts out, straightens and
+-- crops the photos, so the front image is exactly as wide as the frame.
+--   frame_width  real width of the front, outer edge to outer edge, in millimetres
+--   lens_y       height of the lens centres, as a share of the front image's height
+--   center_x     the middle of the bridge, as a share of the front image's width
+--   hinge_y      height of the hinges, as a share of the front image's height
+--   side_y       height of the arm where it meets the front, as a share of the side image's height
+create table if not exists public.product_tryons (
+  product_id   uuid not null references public.products (id) on delete cascade,
+  color_id     uuid not null references public.colors (id) on delete cascade,
+  front_path   text not null,
+  front_url    text not null,
+  front_width  integer not null check (front_width between 1 and 20000),
+  front_height integer not null check (front_height between 1 and 20000),
+  frame_width  real not null check (frame_width between 80 and 200),
+  lens_y       real not null default 0.5 check (lens_y between 0 and 1),
+  center_x     real not null default 0.5 check (center_x between 0 and 1),
+  hinge_y      real not null default 0.35 check (hinge_y between 0 and 1),
+  side_path    text,
+  side_url     text,
+  side_width   integer check (side_width between 1 and 20000),
+  side_height  integer check (side_height between 1 and 20000),
+  side_y       real check (side_y between 0 and 1),
+  updated_at   timestamptz not null default now(),
+  primary key (product_id, color_id)
+);
+create index if not exists product_tryons_color_idx on public.product_tryons (color_id);
 
 
 -- ---------------------------------------------------------
@@ -420,6 +449,7 @@ alter table public.colors               enable row level security;
 alter table public.products             enable row level security;
 alter table public.product_colors       enable row level security;
 alter table public.product_images       enable row level security;
+alter table public.product_tryons       enable row level security;
 alter table public.announcements        enable row level security;
 alter table public.orders               enable row level security;
 alter table public.order_items          enable row level security;
@@ -448,6 +478,10 @@ drop policy if exists "Catalogue: read photos of live products" on public.produc
 create policy "Catalogue: read photos of live products" on public.product_images for select to anon, authenticated
   using (exists (select 1 from public.products p where p.id = product_id and p.is_active));
 
+drop policy if exists "Catalogue: read try-on photos of live products" on public.product_tryons;
+create policy "Catalogue: read try-on photos of live products" on public.product_tryons for select to anon, authenticated
+  using (exists (select 1 from public.products p where p.id = product_id and p.is_active));
+
 drop policy if exists "Catalogue: read live announcements" on public.announcements;
 create policy "Catalogue: read live announcements" on public.announcements for select to anon, authenticated using (is_active);
 
@@ -456,7 +490,7 @@ revoke all on table public.admin_users, public.admin_login_attempts, public.admi
   from anon, authenticated;
 revoke insert, update, delete, truncate on table
   public.categories, public.shapes, public.materials, public.colors,
-  public.products, public.product_colors, public.product_images, public.announcements
+  public.products, public.product_colors, public.product_images, public.product_tryons, public.announcements
   from anon, authenticated;
 
 revoke execute on function public.create_order(jsonb, jsonb) from public, anon, authenticated;
@@ -703,4 +737,5 @@ select
     select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'realtime' and p.proname = 'send'
   ) as realtime_broadcast_available,
-  (select count(*) from storage.buckets where id in ('product-images', 'prescriptions')) = 2 as storage_buckets_ready;
+  (select count(*) from storage.buckets where id in ('product-images', 'prescriptions')) = 2 as storage_buckets_ready,
+  to_regclass('public.product_tryons') is not null as tryon_photos_ready;

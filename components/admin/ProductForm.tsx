@@ -3,16 +3,18 @@
 import NextLink from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState, useTransition, type FormEvent } from 'react';
-import { deleteProduct, saveProduct, type ProductInput } from '@/lib/admin/actions/products';
-import { GENDER_LABEL, SHAPES, finishOf, money, type Gender } from '@/lib/catalog';
-import { buildProduct, makeLookups, slugify, toColor, type FilterRows, type ProductRow } from '@/lib/catalog-build';
+import { deleteProduct, saveProduct, type ProductInput, type TryOnInput } from '@/lib/admin/actions/products';
+import { GENDER_LABEL, SHAPES, finishOf, money, type Gender, type TryOn } from '@/lib/catalog';
+import { buildProduct, makeLookups, slugify, toColor, type FilterRows, type ProductRow, type ProductTryOnRow } from '@/lib/catalog-build';
 import { vars } from '@/lib/css';
+import { geomFor } from '@/lib/frames';
 import type { PublicSupabase } from '@/lib/supabase/env';
 import { FrameSvg } from '@/components/ui/FrameSvg';
 import { Icon } from '@/components/ui/Icon';
 import { Field, Select, Switch, TextArea, TextInput } from './fields';
 import { confirmDialog, toast, toastError } from './feedback';
 import { ImageManager, type EditableImage } from './ImageManager';
+import { draftFromRow, draftToTryOn, TryOnManager, uploadTryOnPhotos, type TryOnDraft, type TryOnUpdate } from './TryOnManager';
 
 const TAGS = ['Bestseller', 'New', 'Sale', 'Limited', 'Staff pick'];
 
@@ -39,9 +41,13 @@ interface State {
   sortOrder: string;
   colors: { colorId: string; metalColorId: string | null }[];
   images: EditableImage[];
+  /** Live Mirror photos by colour id. */
+  tryons: Record<string, TryOnDraft>;
+  /** The frame's real width in millimetres, for the try-on photos. */
+  tryonWidth: string;
 }
 
-function initialState(row: ProductRow | null, filters: FilterRows, nextSort: number): State {
+function initialState(row: ProductRow | null, filters: FilterRows, nextSort: number, tryonRows: ProductTryOnRow[]): State {
   if (!row) {
     const shape = filters.shapes.find(s => s.is_active) ?? filters.shapes[0];
     const base = SHAPES[(shape?.base as keyof typeof SHAPES) ?? 'round'] ?? SHAPES.round;
@@ -53,6 +59,8 @@ function initialState(row: ProductRow | null, filters: FilterRows, nextSort: num
       inStock: true, isActive: true, isFeatured: false, sortOrder: String(nextSort),
       colors: filters.colors.filter(c => c.is_active).slice(0, 1).map(c => ({ colorId: c.id, metalColorId: null })),
       images: [],
+      tryons: {},
+      tryonWidth: '',
     };
   }
   return {
@@ -66,6 +74,8 @@ function initialState(row: ProductRow | null, filters: FilterRows, nextSort: num
     images: [...(row.product_images ?? [])].sort((a, b) => a.sort_order - b.sort_order).map(i => ({
       key: i.id, id: i.id, path: i.path, url: i.url, alt: i.alt, colorId: i.color_id, width: i.width, height: i.height,
     })),
+    tryons: Object.fromEntries(tryonRows.map(t => [t.color_id, draftFromRow(t)])),
+    tryonWidth: tryonRows[0] ? String(tryonRows[0].frame_width) : '',
   };
 }
 
@@ -74,12 +84,23 @@ const snapshot = (s: State) => JSON.stringify({
   ...s,
   slugTouched: undefined,
   images: s.images.map(i => [i.id, i.path, i.alt, i.colorId]),
+  tryons: Object.entries(s.tryons).filter(([id]) => s.colors.some(c => c.colorId === id)).sort(([a], [b]) => a.localeCompare(b))
+    .map(([id, t]) => [id, t.front.path ?? t.front.url, t.lensY, t.centerX, t.side?.path ?? t.side?.url ?? null, t.side?.y ?? null]),
+  tryonWidth: Object.keys(s.tryons).length ? s.tryonWidth : '',
 });
 
-export function ProductForm({ row, filters, supabase, nextSort }: { row: ProductRow | null; filters: FilterRows; supabase: PublicSupabase | null; nextSort: number }) {
+export function ProductForm({ row, filters, supabase, nextSort, tryons: tryonRows = [], tryonReady = true }: {
+  row: ProductRow | null;
+  filters: FilterRows;
+  supabase: PublicSupabase | null;
+  nextSort: number;
+  tryons?: ProductTryOnRow[];
+  /** False until the database has the try-on table. */
+  tryonReady?: boolean;
+}) {
   const router = useRouter();
-  const [s, setS] = useState<State>(() => initialState(row, filters, nextSort));
-  const [saved, setSaved] = useState(() => snapshot(initialState(row, filters, nextSort)));
+  const [s, setS] = useState<State>(() => initialState(row, filters, nextSort, tryonRows));
+  const [saved, setSaved] = useState(() => snapshot(initialState(row, filters, nextSort, tryonRows)));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [previewColour, setPreviewColour] = useState<string | null>(null);
   const [pending, start] = useTransition();
@@ -114,6 +135,24 @@ export function ProductForm({ row, filters, supabase, nextSort }: { row: Product
   }, lookups);
   const shownColour = previewColour && preview.finishes.includes(previewColour) ? previewColour : preview.finishes[0] ?? '';
 
+  // Try-on photos: the colours on the form, and the frame as the Live Mirror will show it.
+  const defaultWidth = Math.round(geomFor(preview).totalW);
+  const tryonWidthMm = Number(s.tryonWidth) || defaultWidth;
+  const tryonColours = s.colors.flatMap(c => {
+    const r = filters.colors.find(x => x.id === c.colorId);
+    return r ? [{ id: r.id, slug: r.slug, name: r.name, swatch: toColor(r).finish.swatch }] : [];
+  });
+  const tryonPreview = {
+    ...preview,
+    tryon: Object.fromEntries(tryonColours.flatMap(c => (s.tryons[c.id] ? [[c.slug, draftToTryOn(s.tryons[c.id], tryonWidthMm)]] : []))) as Record<string, TryOn>,
+  };
+  const updateTryOn: TryOnUpdate = (colorId, change) => setS(prev => {
+    const next = change(prev.tryons[colorId]);
+    const tryons = { ...prev.tryons };
+    if (next) tryons[colorId] = next; else delete tryons[colorId];
+    return { ...prev, tryons };
+  });
+
   const onName = (name: string) => setS(prev => ({ ...prev, name, slug: prev.slugTouched ? prev.slug : slugify(name) }));
 
   const useShapeSizes = () => {
@@ -142,9 +181,14 @@ export function ProductForm({ row, filters, supabase, nextSort }: { row: Product
     if (!s.name.trim()) errs.name = 'Give the product a name.';
     if (s.price === '' || !(Number(s.price) >= 0)) errs.price = 'Enter a price.';
     if (s.compareAt && !(Number(s.compareAt) > Number(s.price))) errs.compareAt = 'Must be higher than the price, or empty.';
+    // Try-on photos of the colours still on the product.
+    const tryonDrafts = Object.fromEntries(Object.entries(s.tryons).filter(([id]) => s.colors.some(c => c.colorId === id)));
+    const hasTryOns = Object.keys(tryonDrafts).length > 0;
+    if (hasTryOns && !(tryonWidthMm >= 80 && tryonWidthMm <= 200)) errs.tryonWidth = 'Enter the frame width, between 80 and 200 mm.';
     setErrors(errs);
-    if (Object.keys(errs).length) { toastError('Check the highlighted fields.'); return; }
+    if (Object.keys(errs).length) { toastError(errs.tryonWidth ?? 'Check the highlighted fields.'); return; }
     if (uploading) { toastError('Wait for the photos to finish uploading.'); return; }
+    if (hasTryOns && !supabase) { toastError('Uploads need the Supabase settings. Check the environment variables.'); return; }
 
     const input: ProductInput = {
       id: row?.id,
@@ -157,13 +201,30 @@ export function ProductForm({ row, filters, supabase, nextSort }: { row: Product
       images: s.images.filter(i => i.path).map(i => ({ id: i.id, path: i.path, url: i.url, alt: i.alt, colorId: i.colorId, width: i.width, height: i.height })),
     };
     start(async () => {
+      // New try-on cut-outs go to storage first; the product then points at them.
+      let tryons = tryonDrafts;
+      if (hasTryOns && supabase) {
+        const up = await uploadTryOnPhotos(tryonDrafts, supabase);
+        tryons = up.drafts;
+        setS(prev => ({ ...prev, tryons: { ...prev.tryons, ...up.drafts } }));
+        if (up.error) { toastError(`Try-on photo: ${up.error}`); return; }
+      }
+      if (tryonReady) {
+        input.tryons = Object.entries(tryons).flatMap(([colorId, t]): TryOnInput[] => (t.front.path ? [{
+          colorId,
+          front: { path: t.front.path, width: t.front.width, height: t.front.height },
+          widthMm: tryonWidthMm,
+          lensY: t.lensY, centerX: t.centerX, hingeY: t.hingeY,
+          side: t.side?.path ? { path: t.side.path, width: t.side.width, height: t.side.height, y: t.side.y } : null,
+        }] : []));
+      }
       const res = await saveProduct(input);
       if (!res.ok) {
         if (res.field) setErrors({ [res.field]: res.error });
         toastError(res.error);
         return;
       }
-      setSaved(snapshot(s));
+      setSaved(snapshot({ ...s, tryons: { ...s.tryons, ...tryons } }));
       toast(isNew ? `${s.name} added to the shop` : 'Changes saved', { body: s.isActive ? 'It is live in the shop.' : 'It is hidden from the shop.' });
       if (isNew) router.replace(`/admin/products/${res.id}`);
     });
@@ -308,6 +369,20 @@ export function ProductForm({ row, filters, supabase, nextSort }: { row: Product
               <TextInput id="pD" label="Bridge" type="number" min={10} max={30} value={s.D} onChange={e => set('D', e.target.value)} hint="10 to 30" />
               <TextInput id="pT" label="Temple" type="number" min={100} max={170} value={s.temple} onChange={e => set('temple', e.target.value)} hint="100 to 170" />
             </div>
+          </div>
+        </section>
+
+        <section className="adm-card" id="tryon">
+          <div className="adm-card__head">
+            <div>
+              <h2>Try-on photos</h2>
+              <p>Real photos of the frame for the Live Mirror, one per colour. Upload the photo on white: the background is removed, the frame is levelled and cropped for you.</p>
+            </div>
+          </div>
+          <div className="adm-card__body">
+            <TryOnManager colours={tryonColours} drafts={s.tryons} update={updateTryOn}
+              width={s.tryonWidth} onWidth={v => set('tryonWidth', v)} defaultWidth={defaultWidth}
+              printed={{ A: Number(s.A) || 50, D: Number(s.D) || 18 }} ready={tryonReady} product={tryonPreview} />
           </div>
         </section>
       </div>

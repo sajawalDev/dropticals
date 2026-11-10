@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import NextLink from 'next/link';
-import { DataError, getAdminProducts, getFilterRows } from '@/lib/admin/data';
+import { DataError, getAdminProducts, getAdminTryOns, getFilterRows } from '@/lib/admin/data';
 import { publicSupabase } from '@/lib/supabase/env';
 import { PageHead } from '@/components/admin/fields';
 import { ProductForm } from '@/components/admin/ProductForm';
@@ -10,9 +10,9 @@ import { Icon } from '@/components/ui/Icon';
 export const metadata: Metadata = { title: 'Add product' };
 
 export default async function NewProductPage() {
-  let filters, products;
+  let filters, products, tryons;
   try {
-    [filters, products] = await Promise.all([getFilterRows(), getAdminProducts()]);
+    [filters, products, tryons] = await Promise.all([getFilterRows(), getAdminProducts(), getAdminTryOns(null)]);
   } catch (e) {
     if (e instanceof DataError) return <><PageHead title="Add product" /><SetupNotice message={e.message} /></>;
     throw e;
@@ -25,7 +25,7 @@ export default async function NewProductPage() {
         title="Add product"
         sub="Fill in the details and add photos. It goes live in the shop when you save, unless you switch it off."
       />
-      <ProductForm row={null} filters={filters} supabase={publicSupabase()} nextSort={nextSort} />
+      <ProductForm row={null} filters={filters} supabase={publicSupabase()} nextSort={nextSort} tryonReady={tryons.ready} />
     </>
   );
 }

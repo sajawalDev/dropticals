@@ -1,10 +1,11 @@
-import { finishOf, type Product } from '../catalog';
+import { finishOf, tryOnFor, type Product } from '../catalog';
 import { geomFor } from '../frames';
 import { LOGO_EMBLEM } from '../logo';
 import { clamp } from '../motion';
 import { drawFrameCanvas, finishRimStyle } from './canvas';
 import { currentLandmarker, loadLandmarker } from './landmarker';
 import { poseFrom, PoseSmoother, type Pose } from './pose';
+import { drawTryOnArm, drawTryOnFront, FACE_MM, tryOnHinge, tryOnImage } from './tryon';
 
 /* =========================================================
    Live Mirror engine: camera or photo in, frames drawn on
@@ -87,7 +88,13 @@ export class MirrorEngine {
   private drawGlasses(c: CanvasRenderingContext2D, ps: Pose, a: number) {
     const { product: p, finish, fit } = this.selection();
     const g = geomFor(p);
-    const k = (ps.w * 0.93 * fit) / g.totalW;                  // pixels per millimetre
+    // A real photo of the frame when it has one (and it has loaded), else the drawing.
+    const t = tryOnFor(p, finish);
+    const pic = t ? tryOnImage(t.front.url) : null;
+    const photo = t && pic ? { t, pic } : null;
+    // Pixels per millimetre. Photos are shown at their real size on a typical head;
+    // drawings are sized to the face.
+    const k = photo ? (ps.w * fit) / FACE_MM : (ps.w * 0.93 * fit) / g.totalW;
     const yaw = clamp(ps.yaw, -0.75, 0.75), pitch = clamp(ps.pitch, -0.6, 0.6);
     const persp = Math.sin(yaw);
     c.save();
@@ -101,25 +108,40 @@ export class MirrorEngine {
     if (ta > 0.01 && ps.earL && ps.earR) {
       const nearLeft = yaw > 0;                                 // the image-left eye is closer to the camera
       const side = nearLeft ? -1 : 1;
-      const lensCx = g.cxL * -side, sc = 1 + Math.abs(persp) * 0.16;
-      const hx = side * Math.abs(g.endPt[0]);
-      const hinge = new DOMPoint(lensCx + (hx - lensCx) * sc, g.endPt[1] * sc).matrixTransform(m);
+      let hingeMm: { x: number; y: number };
+      if (photo) hingeMm = tryOnHinge(photo.t, side, persp);
+      else {
+        const lensCx = g.cxL * -side, sc = 1 + Math.abs(persp) * 0.16;
+        const hx = side * Math.abs(g.endPt[0]);
+        hingeMm = { x: lensCx + (hx - lensCx) * sc, y: g.endPt[1] * sc };
+      }
+      const hinge = new DOMPoint(hingeMm.x, hingeMm.y).matrixTransform(m);
       const ear = nearLeft ? ps.earL : ps.earR;
       const earPt = new DOMPoint(ear[0], ear[1] - 0.02 * ps.w).matrixTransform(this.baseTransform);
+      const arm = photo?.t.side ? tryOnImage(photo.t.side.url) : null;
       c.save();
       c.setTransform(1, 0, 0, 1, 0, 0);
-      c.globalAlpha = ta; c.lineCap = 'round';
-      c.strokeStyle = finishRimStyle(p, finish);
-      c.lineWidth = Math.max(g.rim * 0.9 * k, 2);
-      c.beginPath();
-      c.moveTo(hinge.x, hinge.y);
-      c.quadraticCurveTo((hinge.x + earPt.x) / 2, Math.min(hinge.y, earPt.y) - 0.01 * ps.w, earPt.x, earPt.y);
-      c.stroke();
+      c.globalAlpha = ta;
+      if (photo?.t.side && arm) {
+        drawTryOnArm(c, photo.t.side, arm, hinge, earPt, k, p.temple);
+      } else {
+        c.lineCap = 'round';
+        c.strokeStyle = finishRimStyle(p, finish);
+        c.lineWidth = Math.max((photo ? 3.4 : g.rim * 0.9) * k, 2);
+        c.beginPath();
+        c.moveTo(hinge.x, hinge.y);
+        c.quadraticCurveTo((hinge.x + earPt.x) / 2, Math.min(hinge.y, earPt.y) - 0.01 * ps.w, earPt.x, earPt.y);
+        c.stroke();
+      }
       c.restore();
     }
     c.globalAlpha = a;
-    c.shadowColor = 'rgba(0,0,0,.35)'; c.shadowBlur = Math.max(4, 0.02 * ps.w); c.shadowOffsetY = Math.max(2, 0.008 * ps.w);
-    drawFrameCanvas(c, p, finish, persp);
+    if (photo) {
+      drawTryOnFront(c, photo.t, photo.pic, persp);
+    } else {
+      c.shadowColor = 'rgba(0,0,0,.35)'; c.shadowBlur = Math.max(4, 0.02 * ps.w); c.shadowOffsetY = Math.max(2, 0.008 * ps.w);
+      drawFrameCanvas(c, p, finish, persp);
+    }
     c.restore();
   }
 

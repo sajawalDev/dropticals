@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import NextLink from 'next/link';
 import { notFound } from 'next/navigation';
-import { DataError, getAdminProduct, getFilterRows } from '@/lib/admin/data';
+import { DataError, getAdminProduct, getAdminTryOns, getFilterRows } from '@/lib/admin/data';
 import { isUuid } from '@/lib/admin/guard';
 import { dateTime } from '@/lib/admin/types';
 import { publicSupabase } from '@/lib/supabase/env';
@@ -19,9 +19,9 @@ export async function generateMetadata({ params }: PageProps<'/admin/products/[i
 export default async function EditProductPage({ params }: PageProps<'/admin/products/[id]'>) {
   const { id } = await params;
   if (!isUuid(id)) notFound();
-  let row, filters;
+  let row, filters, tryons;
   try {
-    [row, filters] = await Promise.all([getAdminProduct(id), getFilterRows()]);
+    [row, filters, tryons] = await Promise.all([getAdminProduct(id), getFilterRows(), getAdminTryOns(id)]);
   } catch (e) {
     if (e instanceof DataError) return <><PageHead title="Product" /><SetupNotice message={e.message} /></>;
     throw e;
@@ -36,7 +36,8 @@ export default async function EditProductPage({ params }: PageProps<'/admin/prod
         sub={row.updated_at ? `Last saved ${dateTime(row.updated_at)}.` : undefined}
       />
       {/* A fresh form whenever the saved product changes (after saving, or a change made in another tab). */}
-      <ProductForm key={`${row.id}:${row.updated_at}`} row={row} filters={filters} supabase={publicSupabase()} nextSort={row.sort_order} />
+      <ProductForm key={`${row.id}:${row.updated_at}`} row={row} filters={filters} supabase={publicSupabase()} nextSort={row.sort_order}
+        tryons={tryons.rows} tryonReady={tryons.ready} />
     </>
   );
 }

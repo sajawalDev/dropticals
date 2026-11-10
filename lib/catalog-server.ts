@@ -2,7 +2,10 @@ import 'server-only';
 import { cache } from 'react';
 import { DEFAULT_ANNOUNCEMENTS, toAnnouncement, type Announcement, type AnnouncementRow } from './announcements';
 import type { Catalog } from './catalog';
-import { buildCatalog, PRODUCT_COLUMNS, type RawCatalog } from './catalog-build';
+import {
+  buildCatalog, isMissingTable, PRODUCT_COLUMNS, TRYON_COLUMNS, withTryOns,
+  type ProductRow, type ProductTryOnRow, type RawCatalog,
+} from './catalog-build';
 import { BUILTIN_CATALOG } from './catalog-seed';
 import { shopDb } from './supabase/server';
 
@@ -15,18 +18,21 @@ export const getCatalog = cache(async (): Promise<Catalog> => {
   const db = shopDb();
   if (!db) return builtin();
   try {
-    const [categories, shapes, materials, colors, products] = await Promise.all([
+    const [categories, shapes, materials, colors, products, tryons] = await Promise.all([
       db.from('categories').select('id, slug, name, description, sort_order, is_active'),
       db.from('shapes').select('id, slug, name, description, base, sort_order, is_active'),
       db.from('materials').select('id, slug, name, short_name, base, sort_order, is_active'),
       db.from('colors').select('id, slug, name, style, hex, sort_order, is_active'),
       db.from('products').select(PRODUCT_COLUMNS).eq('is_active', true),
+      db.from('product_tryons').select(TRYON_COLUMNS),
     ]);
     const error = categories.error || shapes.error || materials.error || colors.error || products.error;
     if (error) throw new Error(error.message);
+    // Try-on photos are extra: without them (or before the table exists) frames are drawn instead.
+    if (tryons.error && !isMissingTable(tryons.error)) console.warn('[catalog] Try-on photos unavailable:', tryons.error.message);
     return buildCatalog({
       categories: categories.data, shapes: shapes.data, materials: materials.data, colors: colors.data,
-      products: products.data as unknown as RawCatalog['products'],
+      products: withTryOns(products.data as unknown as ProductRow[], (tryons.data ?? []) as ProductTryOnRow[]),
     } as RawCatalog, 'database');
   } catch (e) {
     console.warn('[catalog] Using the built-in catalogue:', e instanceof Error ? e.message : e);
