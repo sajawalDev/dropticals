@@ -338,6 +338,13 @@
   .adm-tryon-test__msg { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: #fff; font-size: .9375rem; }
   .adm-tryon-test__status { position: absolute; left: 12px; bottom: 12px; padding: 5px 12px; border-radius: 999px; background: rgba(0, 0, 0, .6); color: #fff; font-size: .75rem; font-weight: 600; }
   .adm-tryon-test__controls { display: grid; gap: 12px; margin-top: 14px; }
+  .adm-eraser { display: grid; gap: 12px; }
+  .adm-eraser__tools { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; }
+  .adm-eraser__size { flex: 1 1 180px; }
+  .adm-eraser__stage { max-height: min(60dvh, 520px); overflow: auto; border-radius: 12px; border: 1px solid var(--a-line); background: repeating-conic-gradient(#e6e6e6 0 25%, #fff 0 50%) 0 0 / 14px 14px; }
+  .adm-eraser__pic { position: relative; min-width: 100%; }
+  .adm-eraser__pic canvas { display: block; width: 100%; height: auto; touch-action: none; cursor: none; }
+  .adm-eraser__cursor { position: absolute; transform: translate(-50%, -50%); border-radius: 50%; border: 1.5px solid #e11d48; box-shadow: 0 0 0 1px #fff; pointer-events: none; }
 
   /* ---------- sticky save bar ---------- */
   .adm-savebar {

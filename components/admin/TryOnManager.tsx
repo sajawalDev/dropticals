@@ -21,6 +21,7 @@ import { toastError } from './feedback';
    ========================================================= */
 
 const TryOnTester = dynamic(() => import('./TryOnTester'), { ssr: false });
+const TryOnEraser = dynamic(() => import('./TryOnEraser'), { ssr: false });
 
 export interface TryOnPic {
   url: string;
@@ -180,6 +181,7 @@ function TryOnColourRow({ colour, draft, update, open, onToggle, widthMm, printe
   const [hasSource, setHasSource] = useState({ front: false, black: false, side: false });
   const timer = useRef(0);
   const sideFlipped = useRef(false);
+  const [erasing, setErasing] = useState(false);
 
   const fail = (e: unknown) => toastError(e instanceof PhotoError ? e.message : 'The photo could not be cut out. Try another photo.');
   const forget = (url?: string) => { if (url?.startsWith('blob:')) URL.revokeObjectURL(url); };
@@ -355,6 +357,7 @@ function TryOnColourRow({ colour, draft, update, open, onToggle, widthMm, printe
                   </label>
                 )}
                 <div className="adm-tryon__btns">
+                  <button className="adm-btn adm-btn--sm" type="button" disabled={!!busy} onClick={() => setErasing(true)}><Icon name="edit" />Erase</button>
                   <FileButton label="Replace" icon="upload" multiple onFiles={addFront} disabled={!!busy} />
                   {hasSource.front && (hasSource.black
                     ? <button className="adm-btn adm-btn--ghost adm-btn--sm" type="button" disabled={!!busy} onClick={dropBlack}>Remove black photo</button>
@@ -362,6 +365,19 @@ function TryOnColourRow({ colour, draft, update, open, onToggle, widthMm, printe
                         title="For clear and see-through frames: the same photo with a black background, nothing moved" />)}
                   <button className="adm-btn adm-btn--danger-ghost adm-btn--sm" type="button" disabled={!!busy} onClick={removeAll}><Icon name="trash" />Remove</button>
                 </div>
+                {erasing && (
+                  <TryOnEraser url={draft.front.url} title={`Erase: ${colour.name} front`} onClose={() => setErasing(false)}
+                    onDone={(blob, width, height) => {
+                      const url = URL.createObjectURL(blob);
+                      // Same size, so the lens line and bridge line stay where they are. Uploaded on save.
+                      update(id, prev => {
+                        if (!prev) return null;
+                        forget(prev.front.url);
+                        return { ...prev, front: { url, width, height, blob } };
+                      });
+                      setErasing(false);
+                    }} />
+                )}
               </>
             ) : (
               <Drop busy={busy === 'front'} multiple onFiles={addFront}
