@@ -329,6 +329,7 @@ function TryOnColourRow({ colour, draft, update, open, onToggle, widthMm, printe
                   x={draft.centerX} onX={v => set({ centerX: v })} xLabel="Middle of the bridge"
                   marks={[[0, draft.hingeY], [1, draft.hingeY]]} />
                 <p className="adm-tryon__note">
+                  Anything seen through the lenses (the arms behind them, reflections) is cleared, so the face shows through.
                   The <span className="adm-tryon__key adm-tryon__key--h" /> line goes through the middle of both lenses, the
                   {' '}<span className="adm-tryon__key adm-tryon__key--v" /> line through the middle of the bridge. Drag them if they are off.
                 </p>
@@ -370,15 +371,17 @@ function TryOnColourRow({ colour, draft, update, open, onToggle, widthMm, printe
           </div>
 
           <div className="adm-tryon__pane">
-            <div className="adm-tryon__label"><b>Side</b><span>Optional, shown when the head turns</span></div>
+            <div className="adm-tryon__label"><b>Side</b><span>Optional: gives the arm its real colour when the head turns</span></div>
             {!draft ? (
               <p className="adm-small adm-muted">Add the front photo first.</p>
             ) : draft.side ? (
               <>
-                <Guides pic={draft.side} busy={busy === 'side'} alt={`${colour.name} arm, cut out`}
-                  y={draft.side.y} onY={v => update(id, prev => prev && prev.side ? { ...prev, side: { ...prev.side, y: v } } : prev ?? null)}
-                  yLabel="Where the arm meets the front" />
-                <p className="adm-tryon__note">The front end of the arm should be on the left, the ear end on the right, and the line along the arm next to the hinge.</p>
+                <div className="adm-tryon__pic" style={{ aspectRatio: `${draft.side.width} / ${draft.side.height}` }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element -- a local cut-out or a stored try-on image */}
+                  <img src={draft.side.url} alt={`${colour.name} arm, cut out`} draggable={false} />
+                  {busy === 'side' && <span className="adm-tryon__busy">Cutting out…</span>}
+                </div>
+                <p className="adm-tryon__note">Without a side photo, the arm takes the colour of the frame&apos;s outer edge.</p>
                 {hasSource.side && (
                   <label className="adm-tryon__slider">
                     <span>Background cleanup</span>

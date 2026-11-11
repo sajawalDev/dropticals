@@ -40,11 +40,23 @@ export interface Pose {
   pitch: number;
   /** Width of the face at the temples, in pixels. */
   w: number;
+  /**
+   * Width of the irises in pixels, or 0 when they were not found. An iris is 11.7 mm
+   * across in almost everyone, so this is a ruler for the real size of the face.
+   */
+  iris: number;
   earL?: P3;
   earR?: P3;
 }
 
 const P = (lm: NormalizedLandmark[], i: number, W: number, H: number): P3 => [lm[i].x * W, lm[i].y * H, lm[i].z * W];
+
+/** The irises' width: landmarks 469/471 and 474/476 sit on the left and right edge of each iris. */
+function irisWidth(lm: NormalizedLandmark[], W: number, H: number) {
+  if (lm.length < 478) return 0;
+  const d = (a: number, b: number) => Math.hypot((lm[a].x - lm[b].x) * W, (lm[a].y - lm[b].y) * H);
+  return (d(469, 471) + d(474, 476)) / 2;
+}
 
 export function poseFrom(lm: NormalizedLandmark[], W: number, H: number): Pose {
   const a = P(lm, 33, W, H), b = P(lm, 133, W, H), c = P(lm, 362, W, H), d = P(lm, 263, W, H);
@@ -59,6 +71,7 @@ export function poseFrom(lm: NormalizedLandmark[], W: number, H: number): Pose {
     yaw: Math.atan2(dz, Math.hypot(dx, dy)),
     pitch: Math.atan2(chin[2] - top[2], Math.hypot(chin[0] - top[0], chin[1] - top[1])),
     w: Math.hypot(tR[0] - tL[0], tR[1] - tL[1], tR[2] - tL[2]),
+    iris: irisWidth(lm, W, H),
     earL: P(lm, 234, W, H), earR: P(lm, 454, W, H),
   };
 }
@@ -76,7 +89,7 @@ export class PoseSmoother {
     return {
       cx: f.cx.filter(p.cx, t), cy: f.cy.filter(p.cy, t), w: f.w.filter(p.w, t),
       roll: f.roll.filter(p.roll, t), yaw: f.yaw.filter(p.yaw, t), pitch: f.pitch.filter(p.pitch, t),
-      earL: p.earL, earR: p.earR,
+      iris: p.iris, earL: p.earL, earR: p.earR,
     };
   }
 }

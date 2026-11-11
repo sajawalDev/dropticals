@@ -27,10 +27,11 @@ function canvasOf(w: number, h: number) {
 const ctx2d = (c: HTMLCanvasElement) => c.getContext('2d', { willReadFrequently: true })!;
 
 /**
- * Lets the page paint (a "working" message) before a long job. A timer, not
- * requestAnimationFrame, which never fires while the tab is in the background.
+ * Lets the page paint (a "working" message) before a long job. In a background tab
+ * there is nothing to paint, and browsers slow timers there to as little as one a
+ * minute, so it does not wait.
  */
-export const nextPaint = () => new Promise<void>(r => setTimeout(r, 40));
+export const nextPaint = () => new Promise<void>(r => (document.hidden ? r() : setTimeout(r, 40)));
 
 /** Opens a photo and scales it down for working on. */
 export async function readPhoto(file: File): Promise<ImageData> {
@@ -350,18 +351,119 @@ interface Lens { cx: number; cy: number; w: number; h: number; x0: number; x1: n
  * The lens openings: the two biggest see-through areas enclosed by the frame,
  * one each side of the middle. None for rimless and half-rim frames.
  */
-function findLenses(img: ImageData): [Lens, Lens] | null {
+function lensHoles(img: ImageData) {
   const { width: w, height: h, data } = img;
   const mask = new Uint8Array(w * h);
   for (let p = 0; p < w * h; p++) mask[p] = data[p * 4 + 3] < 128 ? 1 : 0;
-  const { list } = regions(mask, w, h, false);
-  const holes = list.slice(1).filter(r => !r.edge && r.area > w * h * 0.012).sort((a, b) => b.area - a.area);
-  const toLens = (r: Region): Lens => ({ cx: (r.x0 + r.x1 + 1) / 2, cy: (r.y0 + r.y1 + 1) / 2, w: r.x1 - r.x0 + 1, h: r.y1 - r.y0 + 1, x0: r.x0, x1: r.x1 + 1 });
-  const left = holes.find(r => (r.x0 + r.x1) / 2 < w / 2), right = holes.find(r => (r.x0 + r.x1) / 2 >= w / 2);
+  const { label, list } = regions(mask, w, h, false);
+  const ids = list.map((_, i) => i).slice(1).filter(i => !list[i].edge && list[i].area > w * h * 0.012).sort((a, b) => list[b].area - list[a].area);
+  const mid = (i: number) => (list[i].x0 + list[i].x1) / 2;
+  const left = ids.find(i => mid(i) < w / 2), right = ids.find(i => mid(i) >= w / 2);
   if (!left || !right) return null;
-  const ratio = left.area / right.area;
+  const ratio = list[left].area / list[right].area;
   if (ratio < 0.5 || ratio > 2) return null;
-  return [toLens(left), toLens(right)];
+  return { label, list, ids: [left, right] as const };
+}
+
+function findLenses(img: ImageData): [Lens, Lens] | null {
+  const found = lensHoles(img);
+  if (!found) return null;
+  const toLens = (r: Region): Lens => ({ cx: (r.x0 + r.x1 + 1) / 2, cy: (r.y0 + r.y1 + 1) / 2, w: r.x1 - r.x0 + 1, h: r.y1 - r.y0 + 1, x0: r.x0, x1: r.x1 + 1 });
+  return [toLens(found.list[found.ids[0]]), toLens(found.list[found.ids[1]])];
+}
+
+type XY = [number, number];
+
+/** Convex hull of points, counter-clockwise (monotone chain). */
+function hull(pts: XY[]): XY[] {
+  pts.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o: XY, a: XY, b: XY) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lower: XY[] = [], upper: XY[] = [];
+  for (const p of pts) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop();
+    lower.push(p);
+  }
+  for (let i = pts.length - 1; i >= 0; i--) {
+    const p = pts[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop();
+    upper.push(p);
+  }
+  return lower.slice(0, -1).concat(upper.slice(0, -1));
+}
+
+/**
+ * Clears everything seen through the lens openings: the arms behind them, the nose pads,
+ * reflections and stickers on demo lenses. Lenses are always cut convex, so the opening
+ * is the convex hull of the see-through part; whatever lies inside it is not the frame front.
+ * A thin ring along the rim is left alone, so the rim keeps its soft edge.
+ *
+ * If a lens opening leaks past the rim (a shine spot on a thin metal rim, say), its outline
+ * would cut through the frame; then the openings are no longer closed afterwards, and
+ * nothing is cleared.
+ */
+function clearLenses(img: ImageData) {
+  const found = lensHoles(img);
+  if (!found) return;
+  const { width: w, data } = img;
+  const { label, list } = found;
+  const saved = new Uint8Array(w * img.height);
+  for (let p = 0; p < saved.length; p++) saved[p] = data[p * 4 + 3];
+  const boxes = found.ids.map(id => ({ ...list[id] }));
+  for (const id of found.ids) {
+    const r = list[id];
+    const pts: XY[] = [];
+    for (let y = r.y0; y <= r.y1; y++) {
+      let a = -1, b = -1;
+      for (let x = r.x0; x <= r.x1; x++) if (label[y * w + x] === id) { if (a < 0) a = x; b = x; }
+      if (a >= 0) pts.push([a, y], [b + 1, y], [a, y + 1], [b + 1, y + 1]);
+    }
+    const poly = hull(pts);
+    if (poly.length < 3) continue;
+    // Pull the outline 2 px inward.
+    const cx = poly.reduce((s, p) => s + p[0], 0) / poly.length, cy = poly.reduce((s, p) => s + p[1], 0) / poly.length;
+    const inner = poly.map(([x, y]): XY => {
+      const d = Math.hypot(x - cx, y - cy) || 1;
+      return [x - ((x - cx) / d) * 2, y - ((y - cy) / d) * 2];
+    });
+    for (let y = r.y0; y <= r.y1; y++) {
+      const yc = y + 0.5;
+      let lo = Infinity, hi = -Infinity;
+      for (let i = 0; i < inner.length; i++) {
+        const [x1, y1] = inner[i], [x2, y2] = inner[(i + 1) % inner.length];
+        if ((y1 <= yc && y2 > yc) || (y2 <= yc && y1 > yc)) {
+          const x = x1 + ((yc - y1) / (y2 - y1)) * (x2 - x1);
+          if (x < lo) lo = x; if (x > hi) hi = x;
+        }
+      }
+      if (lo > hi) continue;
+      for (let x = Math.max(0, Math.ceil(lo - 0.5)); x <= Math.min(w - 1, Math.floor(hi - 0.5)); x++) data[(y * w + x) * 4 + 3] = 0;
+    }
+  }
+  // Both openings must still be closed, and no bigger than before.
+  const check = lensHoles(img);
+  const same = check && check.ids.every((id, i) => {
+    const a = check.list[id], b = boxes[i];
+    return a.x0 >= b.x0 - 3 && a.x1 <= b.x1 + 3 && a.y0 >= b.y0 - 3 && a.y1 <= b.y1 + 3;
+  });
+  if (!same) for (let p = 0; p < saved.length; p++) data[p * 4 + 3] = saved[p];
+}
+
+/**
+ * A finished try-on image with its lens openings cleared, ready to draw. Photos cut out
+ * before the openings were cleared get the same clean look. Null when the image cannot be
+ * read (then the original is used).
+ */
+export function cleanTryOnImage(img: HTMLImageElement): HTMLCanvasElement | null {
+  try {
+    const c = canvasOf(img.naturalWidth, img.naturalHeight), x = ctx2d(c);
+    x.drawImage(img, 0, 0);
+    const data = x.getImageData(0, 0, c.width, c.height);
+    clearLenses(data);
+    x.putImageData(data, 0, 0);
+    return c;
+  } catch {
+    return null;
+  }
 }
 
 /** Alpha-weighted average height of the pixels between two columns, as a share of the height. */
@@ -428,6 +530,7 @@ function cutOut(src: FrontSource, strength: number) {
 /** The front photo: cut out, levelled, cropped to the frame's edges, with the lens centres found. */
 export async function cutFront(src: FrontSource, strength = STRENGTH.default): Promise<FrontCut> {
   let full = cutOut(src, strength);
+  clearLenses(full);
   let img = crop(full, contentBox(full));
   let lenses = findLenses(img);
   let straightened = 0;
@@ -505,3 +608,4 @@ function armStart(img: ImageData) {
   for (let x = 0; x < w * 0.3; x++) if (count(x) > arm * 2.2) last = x;
   return last < 0 ? 0 : Math.min(w - 1, last + Math.max(2, Math.round(arm * 0.4)));
 }
+

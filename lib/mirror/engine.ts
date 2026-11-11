@@ -1,11 +1,11 @@
-import { finishOf, tryOnFor, type Product } from '../catalog';
+import { finishOf, tryOnFor, type Product, type TryOn } from '../catalog';
 import { geomFor } from '../frames';
 import { LOGO_EMBLEM } from '../logo';
 import { clamp } from '../motion';
 import { drawFrameCanvas, finishRimStyle } from './canvas';
 import { currentLandmarker, loadLandmarker } from './landmarker';
 import { poseFrom, PoseSmoother, type Pose } from './pose';
-import { drawTryOnArm, drawTryOnFront, FACE_MM, tryOnHinge, tryOnImage } from './tryon';
+import { drawTryOnArm, drawTryOnFront, FACE_MM, IRIS_MM, tryOnImage, tryOnScale, type Loaded } from './tryon';
 
 /* =========================================================
    Live Mirror engine: camera or photo in, frames drawn on
@@ -64,6 +64,13 @@ export class MirrorEngine {
   private statusText = '';
   /** Bumped by every start and by close, so a slow camera or photo from an earlier start is dropped. */
   private session = 0;
+  /**
+   * The wearer's iris width as a share of their face width. It is the same at any distance
+   * from the camera, so it is averaged over time; with the iris's known size it gives the
+   * real width of the face.
+   */
+  private irisShare = 0;
+  private irisSamples = 0;
 
   isOpen = false;
   mode: MirrorMode = 'idle';
@@ -88,14 +95,12 @@ export class MirrorEngine {
   private drawGlasses(c: CanvasRenderingContext2D, ps: Pose, a: number) {
     const { product: p, finish, fit } = this.selection();
     const g = geomFor(p);
+    const yaw = clamp(ps.yaw, -0.75, 0.75), pitch = clamp(ps.pitch, -0.6, 0.6);
     // A real photo of the frame when it has one (and it has loaded), else the drawing.
     const t = tryOnFor(p, finish);
     const pic = t ? tryOnImage(t.front.url) : null;
-    const photo = t && pic ? { t, pic } : null;
-    // Pixels per millimetre. Photos are shown at their real size on a typical head;
-    // drawings are sized to the face.
-    const k = photo ? (ps.w * fit) / FACE_MM : (ps.w * 0.93 * fit) / g.totalW;
-    const yaw = clamp(ps.yaw, -0.75, 0.75), pitch = clamp(ps.pitch, -0.6, 0.6);
+    if (t && pic) { this.drawPhoto(c, ps, a, t, pic, p.temple, fit, yaw, pitch); return; }
+    const k = (ps.w * fit) / g.totalW;                         // pixels per millimetre: drawings span the face, like the photos
     const persp = Math.sin(yaw);
     c.save();
     c.translate(ps.cx, ps.cy);
@@ -108,41 +113,56 @@ export class MirrorEngine {
     if (ta > 0.01 && ps.earL && ps.earR) {
       const nearLeft = yaw > 0;                                 // the image-left eye is closer to the camera
       const side = nearLeft ? -1 : 1;
-      let hingeMm: { x: number; y: number };
-      if (photo) hingeMm = tryOnHinge(photo.t, side, persp);
-      else {
-        const lensCx = g.cxL * -side, sc = 1 + Math.abs(persp) * 0.16;
-        const hx = side * Math.abs(g.endPt[0]);
-        hingeMm = { x: lensCx + (hx - lensCx) * sc, y: g.endPt[1] * sc };
-      }
-      const hinge = new DOMPoint(hingeMm.x, hingeMm.y).matrixTransform(m);
+      const lensCx = g.cxL * -side, sc = 1 + Math.abs(persp) * 0.16;
+      const hx = side * Math.abs(g.endPt[0]);
+      const hinge = new DOMPoint(lensCx + (hx - lensCx) * sc, g.endPt[1] * sc).matrixTransform(m);
       const ear = nearLeft ? ps.earL : ps.earR;
       const earPt = new DOMPoint(ear[0], ear[1] - 0.02 * ps.w).matrixTransform(this.baseTransform);
-      const arm = photo?.t.side ? tryOnImage(photo.t.side.url) : null;
       c.save();
       c.setTransform(1, 0, 0, 1, 0, 0);
-      c.globalAlpha = ta;
-      if (photo?.t.side && arm) {
-        drawTryOnArm(c, photo.t.side, arm, hinge, earPt, k, p.temple);
-      } else {
-        c.lineCap = 'round';
-        c.strokeStyle = finishRimStyle(p, finish);
-        c.lineWidth = Math.max((photo ? 3.4 : g.rim * 0.9) * k, 2);
-        c.beginPath();
-        c.moveTo(hinge.x, hinge.y);
-        c.quadraticCurveTo((hinge.x + earPt.x) / 2, Math.min(hinge.y, earPt.y) - 0.01 * ps.w, earPt.x, earPt.y);
-        c.stroke();
-      }
+      c.globalAlpha = ta; c.lineCap = 'round';
+      c.strokeStyle = finishRimStyle(p, finish);
+      c.lineWidth = Math.max(g.rim * 0.9 * k, 2);
+      c.beginPath();
+      c.moveTo(hinge.x, hinge.y);
+      c.quadraticCurveTo((hinge.x + earPt.x) / 2, Math.min(hinge.y, earPt.y) - 0.01 * ps.w, earPt.x, earPt.y);
+      c.stroke();
       c.restore();
     }
     c.globalAlpha = a;
-    if (photo) {
-      drawTryOnFront(c, photo.t, photo.pic, persp);
-    } else {
-      c.shadowColor = 'rgba(0,0,0,.35)'; c.shadowBlur = Math.max(4, 0.02 * ps.w); c.shadowOffsetY = Math.max(2, 0.008 * ps.w);
-      drawFrameCanvas(c, p, finish, persp);
-    }
+    c.shadowColor = 'rgba(0,0,0,.35)'; c.shadowBlur = Math.max(4, 0.02 * ps.w); c.shadowOffsetY = Math.max(2, 0.008 * ps.w);
+    drawFrameCanvas(c, p, finish, persp);
     c.restore();
+  }
+
+  /** A frame with a real photo: placed in 3D on the head, at its real size for this face. */
+  private drawPhoto(c: CanvasRenderingContext2D, ps: Pose, a: number, t: TryOn, pic: Loaded, temple: number, fit: number, yaw: number, pitch: number) {
+    const { canvas } = this.els;
+    const faceMm = this.irisShare ? IRIS_MM / this.irisShare : FACE_MM;
+    const view = {
+      cx: ps.cx, cy: ps.cy, k: tryOnScale(t, ps.w, faceMm) * fit,
+      yaw, pitch, roll: ps.roll, focal: 0.9 * Math.max(canvas.width, canvas.height),
+    };
+    const base = c.getTransform();
+    c.save();
+    // The arm on the side turned toward the camera; the other one is behind the head.
+    const ta = smoothstep(0.08, 0.26, Math.abs(yaw)) * a;
+    if (ta > 0.01) {
+      c.globalAlpha = ta;
+      drawTryOnArm(c, base, t, pic, t.side ? tryOnImage(t.side.url) : null, view, yaw > 0 ? -1 : 1, temple);
+    }
+    c.globalAlpha = a;
+    drawTryOnFront(c, base, t, pic, view);
+    c.restore();
+  }
+
+  /** Learns the real size of the face from the irises, while the head is roughly facing the camera. */
+  private measureFace(p: Pose) {
+    if (!(p.iris > 0) || Math.abs(p.yaw) > 0.3 || Math.abs(p.pitch) > 0.35) return;
+    const share = p.iris / p.w, mm = IRIS_MM / share;
+    if (!(mm > 105 && mm < 185)) return;                        // not a believable face width: skip the sample
+    this.irisSamples = Math.min(this.irisSamples + 1, 90);
+    this.irisShare += (share - this.irisShare) / this.irisSamples;
   }
 
   private render() {
@@ -162,7 +182,7 @@ export class MirrorEngine {
     if (this.tracking && this.pose && this.misses < 5) { target = 1; ps = this.pose; }
     else if (!this.tracking && (this.mode === 'manual' || this.mode === 'photo')) {
       target = 1;
-      ps = { cx: this.manual.x * W, cy: this.manual.y * H, w: this.manual.w * W, roll: 0, yaw: 0, pitch: 0 };
+      ps = { cx: this.manual.x * W, cy: this.manual.y * H, w: this.manual.w * W, roll: 0, yaw: 0, pitch: 0, iris: 0 };
     } else if (this.pose) ps = this.pose;
     this.alpha += (target - this.alpha) * 0.22;
     if (ps && this.alpha > 0.01) this.drawGlasses(ctx, ps, this.alpha);
@@ -184,8 +204,12 @@ export class MirrorEngine {
           try { face = lm.detectForVideo(video, t)?.faceLandmarks?.[0] ?? null; } catch (e) { console.warn(e); }
           if (face) {
             if (this.misses > 8) this.smoother.reset();
+            // Gone for a few seconds: it may be someone else now, so measure the face afresh.
+            if (this.misses > 90) { this.irisShare = 0; this.irisSamples = 0; }
             this.misses = 0;
-            this.pose = this.smoother.smooth(poseFrom(face, canvas.width, canvas.height), t);
+            const raw = poseFrom(face, canvas.width, canvas.height);
+            this.measureFace(raw);
+            this.pose = this.smoother.smooth(raw, t);
             if (!this.faceSeen) { this.faceSeen = true; this.cb.faceFound(); }
           } else this.misses++;
         }
@@ -289,6 +313,8 @@ export class MirrorEngine {
     if (this.mode !== 'photo' || session !== this.session) return;
     if (found) {
       const ps = poseFrom(found, W, H);
+      this.irisShare = 0; this.irisSamples = 0;
+      this.measureFace(ps);
       Object.assign(this.manual, { x: ps.cx / W, y: ps.cy / H, w: ps.w / W });
       this.pose = ps; this.tracking = true; this.misses = 0;
       this.status('');
