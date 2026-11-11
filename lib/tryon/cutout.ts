@@ -8,6 +8,8 @@
    Mirror can put it on a face at its real size.
    ========================================================= */
 
+import { isHeic, photoBitmap, unreadable } from '../heic';
+
 /** Photos are worked on at most this many pixels on the long side. */
 const WORK_MAX = 2400;
 /** Width of the finished try-on images. Plenty for a phone or laptop screen, and quick to load. */
@@ -33,15 +35,13 @@ const ctx2d = (c: HTMLCanvasElement) => c.getContext('2d', { willReadFrequently:
  */
 export const nextPaint = () => new Promise<void>(r => (document.hidden ? r() : setTimeout(r, 40)));
 
-/** Opens a photo and scales it down for working on. */
+/** Opens a photo (iPhone HEIC photos too) and scales it down for working on. */
 export async function readPhoto(file: File): Promise<ImageData> {
   let bmp: ImageBitmap;
   try {
-    bmp = await createImageBitmap(file);
+    bmp = await photoBitmap(file);
   } catch {
-    throw new PhotoError(/hei[cf]/i.test(file.type + file.name)
-      ? 'This browser cannot open iPhone HEIC photos. On the iPhone choose Settings > Camera > Formats > Most Compatible, or send the photo as a JPG.'
-      : `${file.name} could not be opened. Use a JPG or PNG photo.`);
+    throw new PhotoError(unreadable(file.name, await isHeic(file)));
   }
   const s = Math.min(1, WORK_MAX / Math.max(bmp.width, bmp.height));
   const w = Math.max(1, Math.round(bmp.width * s)), h = Math.max(1, Math.round(bmp.height * s));

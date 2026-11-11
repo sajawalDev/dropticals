@@ -242,7 +242,7 @@ export default function LiveMirror({ request }: { request: MirrorRequest }) {
       <input
         type="file"
         ref={fileInput}
-        accept="image/*"
+        accept="image/*,.heic,.heif"
         hidden
         onChange={e => {
           const f = e.target.files?.[0];

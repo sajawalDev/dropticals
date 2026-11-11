@@ -1,5 +1,6 @@
 import { finishOf, tryOnFor, type Product, type TryOn } from '../catalog';
 import { geomFor } from '../frames';
+import { heicBitmap, isHeic } from '../heic';
 import { LOGO_EMBLEM } from '../logo';
 import { clamp } from '../motion';
 import { drawFrameCanvas, finishRimStyle } from './canvas';
@@ -286,14 +287,22 @@ export class MirrorEngine {
     this.photoUrl = URL.createObjectURL(file);
     const img = new Image();
     img.src = this.photoUrl;
-    try { await img.decode(); } catch { if (session === this.session) this.cb.panel('error'); return; }
+    let pic: HTMLImageElement | ImageBitmap = img;
+    try { await img.decode(); } catch {
+      // An iPhone (HEIC) photo in a browser that cannot open it: decode it here.
+      try { if (!(await isHeic(file))) throw new Error('unreadable'); pic = await heicBitmap(file); }
+      catch { if (session === this.session) this.cb.panel('error'); return; }
+    }
     if (session !== this.session) return;
-    const s = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
-    const W = Math.round(img.naturalWidth * s), H = Math.round(img.naturalHeight * s);
+    const pw = pic instanceof HTMLImageElement ? pic.naturalWidth : pic.width;
+    const ph = pic instanceof HTMLImageElement ? pic.naturalHeight : pic.height;
+    const s = Math.min(1, 1600 / Math.max(pw, ph));
+    const W = Math.round(pw * s), H = Math.round(ph * s);
     this.sizeCanvas(W, H);
     const off = document.createElement('canvas');
     off.width = W; off.height = H;
-    off.getContext('2d')!.drawImage(img, 0, 0, W, H);
+    off.getContext('2d')!.drawImage(pic, 0, 0, W, H);
+    if (!(pic instanceof HTMLImageElement)) pic.close();
     this.photo = { img: off };
     this.tracking = false; this.mirrored = false; this.pose = null; this.alpha = 0;
     this.setMode('photo');

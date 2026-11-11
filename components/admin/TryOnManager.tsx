@@ -465,7 +465,7 @@ function Drop({ busy, multiple, onFiles, title, hint }: { busy: boolean; multipl
       <Icon name="upload" />
       <b>{busy ? 'Cutting out the frame…' : title}</b>
       <small>{hint}</small>
-      <input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" multiple={multiple} disabled={busy}
+      <input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" multiple={multiple} disabled={busy}
         aria-label={typeof title === 'string' ? title : 'Choose a photo'}
         onChange={e => { const files = Array.from(e.target.files ?? []); e.target.value = ''; onFiles(files); }} />
     </label>
@@ -478,7 +478,7 @@ function FileButton({ label, icon, multiple, onFiles, disabled, title }: {
   return (
     <label className={cx('adm-btn adm-btn--ghost adm-btn--sm adm-tryon__file', disabled && 'is-disabled')} title={title}>
       <Icon name={icon} />{label}
-      <input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" multiple={multiple} disabled={disabled}
+      <input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" multiple={multiple} disabled={disabled}
         onChange={e => { const files = Array.from(e.target.files ?? []); e.target.value = ''; onFiles(files); }} />
     </label>
   );

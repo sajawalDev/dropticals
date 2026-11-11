@@ -81,7 +81,7 @@ export default function TryOnTester({ product, finish: first, onClose }: { produ
         </label>
         <p className="adm-small adm-muted">This is what customers see. Turn your head to check the arm. Nothing is saved until you save the product.</p>
       </div>
-      <input ref={file} type="file" accept="image/*" hidden onChange={e => {
+      <input ref={file} type="file" accept="image/*,.heic,.heif" hidden onChange={e => {
         const f = e.target.files?.[0];
         e.target.value = '';
         if (f) { setPanel(null); engine.current?.usePhoto(f); }

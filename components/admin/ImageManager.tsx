@@ -25,7 +25,7 @@ export interface EditableImage {
 }
 
 export const MAX_IMAGES = 12;
-const ACCEPT = 'image/jpeg,image/png,image/webp,image/avif,image/gif';
+const ACCEPT = 'image/jpeg,image/png,image/webp,image/avif,image/gif,image/heic,image/heif,.heic,.heif';
 
 /** Product photos: upload (straight to storage), describe, tie to a colour, reorder and remove. */
 export function ImageManager({ images, onChange, colors, supabase, productName }: {
@@ -45,7 +45,8 @@ export function ImageManager({ images, onChange, colors, supabase, productName }
     if (!supabase) { toastError('Uploads need the Supabase settings. Check the environment variables.'); return; }
     const room = MAX_IMAGES - images.length;
     if (room <= 0) { toastError(`A product can have up to ${MAX_IMAGES} photos.`); return; }
-    const picked = files.filter(f => f.type.startsWith('image/')).slice(0, room);
+    // Windows often gives iPhone photos no type at all, so go by the name too.
+    const picked = files.filter(f => f.type.startsWith('image/') || /.hei[cf]$/i.test(f.name)).slice(0, room);
     if (picked.length < files.length) toastError(files.length > room ? `Only ${room} more photo${room === 1 ? '' : 's'} fit.` : 'Only image files can be added.');
 
     await Promise.all(picked.map(async file => {
@@ -100,7 +101,7 @@ export function ImageManager({ images, onChange, colors, supabase, productName }
         >
           <Icon name="upload" />
           <b>{uploading ? 'Uploading…' : 'Drop photos here, or click to choose'}</b>
-          <small>JPG, PNG, WebP, AVIF or GIF. Large photos are resized before upload. Up to {MAX_IMAGES} photos.</small>
+          <small>JPG, PNG, WebP, AVIF, GIF or iPhone (HEIC) photos. Large photos are resized before upload. Up to {MAX_IMAGES} photos.</small>
           <input ref={input} type="file" accept={ACCEPT} multiple aria-label="Add photos"
             onChange={e => { upload(Array.from(e.target.files ?? [])); e.target.value = ''; }} />
         </label>
