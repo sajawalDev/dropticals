@@ -87,26 +87,67 @@ function blur(src: Float32Array, w: number, h: number, ch: number, r: number) {
 }
 
 /**
- * The background's colour at every point, as a coarse grid: the brightest (or, for
- * a black background, darkest) colour nearby, smoothed. Follows uneven lighting
- * and dark corners, and ignores the frame, which is thin next to the window.
+ * The background's colour at every point, as a coarse grid of 8 px cells.
+ *
+ * Starts from each cell's average colour, then repeatedly smooths over the cells that
+ * look like background and leaves out the rest: cells darker than their surroundings
+ * (the frame, a table edge; brighter ones on a black background) and cells brighter
+ * than them (shine on the frame and lenses). The left-out cells get the background
+ * interpolated from around them. Follows uneven lighting, tinted paper and dark corners.
  */
 function backgroundGrid(img: ImageData, light: boolean) {
   const { width: w, height: h, data } = img;
-  const S = 8, gw = Math.ceil(w / S), gh = Math.ceil(h / S);
-  const g = new Float32Array(gw * gh * 3).fill(light ? 0 : 255);
+  const S = 8, gw = Math.ceil(w / S), gh = Math.ceil(h / S), n = gw * gh;
+  const v = new Float32Array(n * 3), count = new Float32Array(n);
   for (let y = 0; y < h; y++) {
     const row = ((y / S) | 0) * gw;
     for (let x = 0; x < w; x++) {
-      const i = (y * w + x) * 4, gi = (row + ((x / S) | 0)) * 3;
-      for (let c = 0; c < 3; c++) {
-        const v = data[i + c];
-        if (light ? v > g[gi + c] : v < g[gi + c]) g[gi + c] = v;
-      }
+      const i = (y * w + x) * 4, g = row + ((x / S) | 0);
+      v[g * 3] += data[i]; v[g * 3 + 1] += data[i + 1]; v[g * 3 + 2] += data[i + 2];
+      count[g]++;
     }
   }
-  const r = Math.max(2, Math.round((0.045 * Math.max(w, h)) / S));
-  return { grid: blur(extreme(g, gw, gh, 3, r, light), gw, gh, 3, r), gw, gh, S };
+  for (let g = 0; g < n; g++) for (let c = 0; c < 3; c++) v[g * 3 + c] /= count[g];
+
+  const lum = (a: Float32Array, g: number) => (a[g * 3] + a[g * 3 + 1] + a[g * 3 + 2]) / 3;
+  const r = Math.max(4, Math.round((0.025 * Math.max(w, h)) / S));
+  let keep = new Float32Array(n).fill(1);
+  let bg = v;
+  for (let pass = 0; pass < 4; pass++) {
+    bg = smoothOver(v, keep, gw, gh, r);
+    // First pass against a rough average, then tighter.
+    const tol = pass === 0 ? 24 : 12;
+    const next = new Float32Array(n);
+    for (let g = 0; g < n; g++) {
+      const diff = lum(v, g) - lum(bg, g);
+      const frameLike = light ? -diff : diff;
+      next[g] = frameLike < tol && -frameLike < tol * 1.5 ? 1 : 0;
+    }
+    keep = next;
+  }
+  return { grid: smoothOver(v, keep, gw, gh, r), gw, gh, S };
+}
+
+/** Average of the kept cells around each cell; a wider window where too few are kept nearby. */
+function smoothOver(v: Float32Array, keep: Float32Array, gw: number, gh: number, r: number) {
+  const n = gw * gh;
+  const vk = new Float32Array(n * 3);
+  let all = 0;
+  const sum = [0, 0, 0];
+  for (let g = 0; g < n; g++) for (let c = 0; c < 3; c++) {
+    vk[g * 3 + c] = v[g * 3 + c] * keep[g];
+    sum[c] += vk[g * 3 + c];
+    if (!c) all += keep[g];
+  }
+  const near = blur(vk, gw, gh, 3, r), nearW = blur(keep, gw, gh, 1, r);
+  const wide = blur(vk, gw, gh, 3, r * 4), wideW = blur(keep, gw, gh, 1, r * 4);
+  const out = new Float32Array(n * 3);
+  for (let g = 0; g < n; g++) for (let c = 0; c < 3; c++) {
+    out[g * 3 + c] = nearW[g] > 0.08 ? near[g * 3 + c] / nearW[g]
+      : wideW[g] > 0.002 ? wide[g * 3 + c] / wideW[g]
+        : all ? sum[c] / all : v[g * 3 + c];
+  }
+  return out;
 }
 
 /** One row of the background, read off the grid with bilinear interpolation. */
@@ -233,17 +274,21 @@ function keepFrame(img: ImageData) {
   const mask = new Uint8Array(w * h);
   for (let p = 0; p < w * h; p++) mask[p] = data[p * 4 + 3] > 90 ? 1 : 0;
   const { label, list } = regions(mask, w, h, true);
+  // Solid shapes running off the photo are props, not the frame: a table edge, a dark
+  // corner, the edge of the paper. A frame front is mostly see-through lens openings.
+  const solid = (r: Region) => r.area / ((r.x1 - r.x0 + 1) * (r.y1 - r.y0 + 1)) > 0.55;
+  const prop = (r: Region) => r.edge && solid(r);
   let main = 0;
-  for (let i = 1; i < list.length; i++) {
-    const better = !list[main]?.area || (list[i].edge === list[main].edge ? list[i].area > list[main].area : !list[i].edge);
-    if (better) main = i;
+  for (let i = 1; i < list.length; i++) if (!prop(list[i]) && (!main || list[i].area > list[main].area)) main = i;
+  if (!main || list[main].area < w * h * 0.0015) {
+    throw new PhotoError('No frame was found in this photo. Use a photo of the frame on a plain white background, with some white space all around it.');
   }
-  if (!main || list[main].area < w * h * 0.002) {
-    throw new PhotoError('No frame was found in this photo. Use a photo of the frame on a plain white background, filling about half the picture.');
-  }
+  // Small parts of the frame (nose pads, a thin bridge) lie within its outline; dust elsewhere is dropped.
+  const m = list[main], pad = 0.04 * (m.x1 - m.x0);
+  const inside = (r: Region) => r.x0 >= m.x0 - pad && r.x1 <= m.x1 + pad && r.y0 >= m.y0 - pad && r.y1 <= m.y1 + pad;
   const keep = new Uint8Array(list.length);
   keep[main] = 1;
-  for (let i = 1; i < list.length; i++) if (!list[i].edge && list[i].area >= list[main].area * 0.004) keep[i] = 1;
+  for (let i = 1; i < list.length; i++) if (!list[i].edge && list[i].area >= m.area * 0.004 && inside(list[i])) keep[i] = 1;
   // Grow the kept areas a little so their soft edges stay.
   const k = new Float32Array(w * h);
   for (let p = 0; p < w * h; p++) if (label[p] && keep[label[p]]) k[p] = 1;
