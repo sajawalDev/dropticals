@@ -281,18 +281,55 @@ function keepFrame(img: ImageData) {
   const prop = (r: Region) => r.edge && solid(r);
   let main = 0;
   for (let i = 1; i < list.length; i++) if (!prop(list[i]) && (!main || list[i].area > list[main].area)) main = i;
-  if (!main || list[main].area < w * h * 0.0015) {
-    throw new PhotoError('No frame was found in this photo. Use a photo of the frame on a plain white background, with some white space all around it.');
-  }
-  // Small parts of the frame (nose pads, a thin bridge) lie within its outline; dust elsewhere is dropped.
-  const m = list[main], pad = 0.04 * (m.x1 - m.x0);
-  const inside = (r: Region) => r.x0 >= m.x0 - pad && r.x1 <= m.x1 + pad && r.y0 >= m.y0 - pad && r.y1 <= m.y1 + pad;
+  const none = () => new PhotoError('No frame was found in this photo. Use a photo of the frame on a plain white background, with some white space all around it.');
+  if (!main) throw none();
+
+  // A clear or rimless frame shows only as pieces: the bridge, the hinges, the arms seen
+  // through the lenses, with a near-invisible clear bridge between the halves. Join every
+  // good-sized piece that is mostly level with the frame so far, however far to the side,
+  // so the whole frame is kept, not just its biggest piece. (A reflection sits below.)
+  const box = { x0: list[main].x0, y0: list[main].y0, x1: list[main].x1, y1: list[main].y1 };
+  const minPart = Math.max(60, w * h * 0.0004);
   const keep = new Uint8Array(list.length);
   keep[main] = 1;
-  for (let i = 1; i < list.length; i++) if (!list[i].edge && list[i].area >= m.area * 0.004 && inside(list[i])) keep[i] = 1;
-  // Grow the kept areas a little so their soft edges stay.
+  let strong = list[main].area;
+  for (let grew = true; grew;) {
+    grew = false;
+    for (let i = 1; i < list.length; i++) {
+      const r = list[i];
+      if (keep[i] || r.edge || r.area < minPart) continue;
+      const level = Math.min(r.y1, box.y1) - Math.max(r.y0, box.y0) + 1;
+      if (level < (r.y1 - r.y0 + 1) * 0.5) continue;
+      keep[i] = 1; strong += r.area; grew = true;
+      box.x0 = Math.min(box.x0, r.x0); box.y0 = Math.min(box.y0, r.y0); box.x1 = Math.max(box.x1, r.x1); box.y1 = Math.max(box.y1, r.y1);
+    }
+  }
+  if (strong < w * h * 0.0012) throw none();
+  // Small parts within the frame's outline (nose pads, screws) stay; dust elsewhere goes.
+  const pad = 0.02 * (box.x1 - box.x0);
+  for (let i = 1; i < list.length; i++) {
+    const r = list[i];
+    if (!keep[i] && !r.edge && r.area >= 12 && r.x0 >= box.x0 - pad && r.x1 <= box.x1 + pad && r.y0 >= box.y0 - pad && r.y1 <= box.y1 + pad) keep[i] = 1;
+  }
+
   const k = new Float32Array(w * h);
   for (let p = 0; p < w * h; p++) if (label[p] && keep[label[p]]) k[p] = 1;
+  if (list[main].area < strong * 0.85) {
+    // Made of pieces: a clear or rimless frame. Its see-through rims are faint, so also keep
+    // the faint areas joined to the pieces' outline (but not the reflection below it).
+    const faint = new Uint8Array(w * h);
+    for (let p = 0; p < w * h; p++) faint[p] = data[p * 4 + 3] > 25 ? 1 : 0;
+    const f = regions(faint, w, h, true);
+    const take = new Uint8Array(f.list.length);
+    for (let i = 1; i < f.list.length; i++) {
+      const r = f.list[i];
+      const overlaps = r.x0 <= box.x1 && r.x1 >= box.x0 && r.y0 <= box.y1 && r.y1 >= box.y0;
+      // Joined to the frame and not reaching far below it, where the reflection is.
+      if (overlaps && !r.edge && r.y1 <= box.y1 + (box.y1 - box.y0) * 0.6) take[i] = 1;
+    }
+    for (let p = 0; p < w * h; p++) if (f.label[p] && take[f.label[p]]) k[p] = 1;
+  }
+  // Grow the kept areas a little so their soft edges stay.
   const grown = extreme(k, w, h, 1, 2, true);
   for (let p = 0; p < w * h; p++) if (!grown[p]) data[p * 4 + 3] = 0;
 }
@@ -608,4 +645,3 @@ function armStart(img: ImageData) {
   for (let x = 0; x < w * 0.3; x++) if (count(x) > arm * 2.2) last = x;
   return last < 0 ? 0 : Math.min(w - 1, last + Math.max(2, Math.round(arm * 0.4)));
 }
-
