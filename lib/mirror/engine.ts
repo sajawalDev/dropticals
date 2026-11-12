@@ -4,9 +4,9 @@ import { heicBitmap, isHeic } from '../heic';
 import { LOGO_EMBLEM } from '../logo';
 import { clamp } from '../motion';
 import { drawFrameCanvas, finishRimStyle } from './canvas';
-import { currentLandmarker, loadLandmarker } from './landmarker';
+import { currentLandmarker, fallBackToCpu, loadLandmarker } from './landmarker';
 import { poseFrom, PoseSmoother, type Pose } from './pose';
-import { drawTryOnArm, drawTryOnFront, FACE_MM, IRIS_MM, tryOnImage, tryOnScale, type Loaded } from './tryon';
+import { drawTryOnArm, drawTryOnFront, FACE_MM, IRIS_MM, tryOnImage, tryOnScale, tryOnVersion, type Loaded } from './tryon';
 
 /* =========================================================
    Live Mirror engine: camera or photo in, frames drawn on
@@ -45,6 +45,17 @@ interface Elements {
 }
 
 const smoothstep = (a: number, b: number, x: number) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+
+/** Face tracking still loading after this long (a slow connection): let the frames be dragged meanwhile. */
+const SLOW_TRACKER_MS = 8000;
+/** Face tracking failing on this many video frames in a row: rebuild it, or fall back to dragging. */
+const MAX_ERRORS = 6;
+/**
+ * With nothing new to show, the picture is still redrawn this often (ms): a safety net for
+ * browsers that report the video's time coarsely. Otherwise it is drawn once per camera
+ * frame, not once per screen refresh, which on a 90 or 120 Hz phone is three or four times less work.
+ */
+const REDRAW_LIVE = 45, REDRAW_STILL = 500;
 export const isInFrame = () => { try { return window.self !== window.top; } catch { return true; } };
 
 export class MirrorEngine {
@@ -72,6 +83,12 @@ export class MirrorEngine {
    */
   private irisShare = 0;
   private irisSamples = 0;
+  /** Bumped by every new pose, so a redraw can tell that the frames have moved. */
+  private poseSeq = 0;
+  private lastRender = 0;
+  private drawnKey = '';
+  /** Video frames in a row on which face tracking threw. */
+  private errors = 0;
 
   isOpen = false;
   mode: MirrorMode = 'idle';
@@ -150,7 +167,7 @@ export class MirrorEngine {
     const ta = smoothstep(0.08, 0.26, Math.abs(yaw)) * a;
     if (ta > 0.01) {
       c.globalAlpha = ta;
-      drawTryOnArm(c, base, t, pic, t.side ? tryOnImage(t.side.url) : null, view, yaw > 0 ? -1 : 1, temple);
+      drawTryOnArm(c, base, t, pic, t.side ? tryOnImage(t.side.url, false) : null, view, yaw > 0 ? -1 : 1, temple);
     }
     c.globalAlpha = a;
     drawTryOnFront(c, base, t, pic, view);
@@ -166,10 +183,28 @@ export class MirrorEngine {
     this.irisShare += (share - this.irisShare) / this.irisSamples;
   }
 
-  private render() {
+  /** How visible the frames should be (0 or 1), and where they go. */
+  private aim(W: number, H: number): { target: number; ps: Pose | null } {
+    if (this.tracking && this.pose && this.misses < 5) return { target: 1, ps: this.pose };
+    if (!this.tracking && (this.mode === 'manual' || this.mode === 'photo')) {
+      return { target: 1, ps: { cx: this.manual.x * W, cy: this.manual.y * H, w: this.manual.w * W, roll: 0, yaw: 0, pitch: 0, iris: 0 } };
+    }
+    return { target: 0, ps: this.pose };
+  }
+
+  /** Everything the picture shows besides the video. While it stays the same, a redraw would change nothing. */
+  private sceneKey() {
+    const { product, finish, fit } = this.selection();
+    const m = this.manual;
+    return `${product.id}|${finish}|${fit}|${m.x}|${m.y}|${m.w}|${this.poseSeq}|${tryOnVersion()}|${this.mode}|${this.tracking}|${this.misses < 5}|${this.els.canvas.width}x${this.els.canvas.height}`;
+  }
+
+  private render(t: number) {
     const { canvas, video, guide } = this.els;
     const ctx = this.ctx, W = canvas.width, H = canvas.height;
     if (!W || !H) return;
+    const dt = this.lastRender ? Math.min(t - this.lastRender, 100) : 16.7;
+    this.lastRender = t;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     if (this.mode === 'photo' && this.photo) {
       ctx.drawImage(this.photo.img, 0, 0, W, H);
@@ -179,30 +214,51 @@ export class MirrorEngine {
       ctx.drawImage(video, 0, 0, W, H);
       this.baseTransform = ctx.getTransform();
     }
-    let target = 0, ps: Pose | null = null;
-    if (this.tracking && this.pose && this.misses < 5) { target = 1; ps = this.pose; }
-    else if (!this.tracking && (this.mode === 'manual' || this.mode === 'photo')) {
-      target = 1;
-      ps = { cx: this.manual.x * W, cy: this.manual.y * H, w: this.manual.w * W, roll: 0, yaw: 0, pitch: 0, iris: 0 };
-    } else if (this.pose) ps = this.pose;
-    this.alpha += (target - this.alpha) * 0.22;
+    const { target, ps } = this.aim(W, H);
+    // Eases in and out at the same speed whatever the frame rate.
+    this.alpha += (target - this.alpha) * (1 - Math.pow(0.78, dt / 16.7));
+    if (Math.abs(target - this.alpha) < 0.004) this.alpha = target;
     if (ps && this.alpha > 0.01) this.drawGlasses(ctx, ps, this.alpha);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     guide.classList.toggle('hide', this.alpha > 0.5 || this.mode === 'photo' || (!this.tracking && this.mode === 'manual'));
   }
 
+  /** Face tracking threw on several frames in a row: rebuild it on the processor, or else let the frames be dragged. */
+  private trackingFailed() {
+    const session = this.session;
+    const toManual = () => {
+      if (session !== this.session || this.mode !== 'live') return;
+      this.tracking = false;
+      this.setMode('manual');
+      this.status('Drag the frames onto your eyes');
+    };
+    const work = fallBackToCpu();
+    if (!work) { toManual(); return; }
+    work.then(() => { if (session === this.session) this.errors = 0; }, toManual);
+  }
+
   private loop() {
     cancelAnimationFrame(this.raf);
+    this.lastRender = 0;
+    this.drawnKey = '';
     const { canvas, video } = this.els;
     const tick = (t: number) => {
       this.raf = requestAnimationFrame(tick);
+      let fresh = false;
       if (this.mode === 'live' || this.mode === 'manual') {
         if (video.readyState < 2) return;
+        // A camera sends 30 frames a second; the screen may refresh 60 to 120 times. Work only on new frames.
+        if (video.currentTime !== this.lastVideoTime) { this.lastVideoTime = video.currentTime; fresh = true; }
         const lm = currentLandmarker();
-        if (this.tracking && lm && video.currentTime !== this.lastVideoTime) {
-          this.lastVideoTime = video.currentTime;
+        if (fresh && this.tracking && lm) {
           let face = null;
-          try { face = lm.detectForVideo(video, t)?.faceLandmarks?.[0] ?? null; } catch (e) { console.warn(e); }
+          try {
+            face = lm.detectForVideo(video, t)?.faceLandmarks?.[0] ?? null;
+            this.errors = 0;
+          } catch (e) {
+            if (++this.errors <= 2) console.warn(e);
+            if (this.errors === MAX_ERRORS) this.trackingFailed();
+          }
           if (face) {
             if (this.misses > 8) this.smoother.reset();
             // Gone for a few seconds: it may be someone else now, so measure the face afresh.
@@ -211,12 +267,22 @@ export class MirrorEngine {
             const raw = poseFrom(face, canvas.width, canvas.height);
             this.measureFace(raw);
             this.pose = this.smoother.smooth(raw, t);
+            this.poseSeq++;
             if (!this.faceSeen) { this.faceSeen = true; this.cb.faceFound(); }
           } else this.misses++;
         }
-        if (this.tracking) this.status(this.misses < 5 ? '' : (this.faceSeen ? 'Bring your face back into view' : 'Looking for your face'));
+        if (this.tracking) {
+          this.status(!lm ? 'Fitting the mirror, one moment'
+            : this.misses < 5 ? '' : (this.faceSeen ? 'Bring your face back into view' : 'Looking for your face'));
+        }
       }
-      this.render();
+      // Skip the redraw when it would show exactly what is already on the canvas.
+      const key = this.sceneKey();
+      const settled = this.alpha === this.aim(canvas.width, canvas.height).target;
+      const wait = this.mode === 'photo' ? REDRAW_STILL : REDRAW_LIVE;
+      if (!fresh && settled && key === this.drawnKey && t - this.lastRender < wait) return;
+      this.drawnKey = key;
+      this.render(t);
     };
     this.raf = requestAnimationFrame(tick);
   }
@@ -244,7 +310,11 @@ export class MirrorEngine {
     const lmReady = loadLandmarker().catch(err => { console.warn('Face tracking unavailable:', err); return null; });
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: this.facing, width: { ideal: 1280 }, height: { ideal: 720 } } });
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        // 30 frames a second is all tracking keeps up with on a phone; some front cameras would send 60.
+        video: { facingMode: this.facing, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
+      });
     } catch (err) {
       if (session !== this.session) return;
       const n = (err as DOMException)?.name;
@@ -268,8 +338,21 @@ export class MirrorEngine {
       .then(d => this.cb.canFlip(d.filter(x => x.kind === 'videoinput').length >= 2))
       .catch(() => {});
     if (!currentLandmarker()) this.status('Fitting the mirror, one moment');
-    const lm = await lmReady;
+    const slow = new Promise<'slow'>(r => setTimeout(() => r('slow'), SLOW_TRACKER_MS));
+    const lm = await Promise.race([lmReady, slow]);
     if (!this.isOpen || this.mode !== 'live' || session !== this.session) return;
+    if (lm === 'slow') {
+      // Still downloading on a slow connection. Show the frames to drag meanwhile, and keep
+      // waiting: they lock on to the face the moment tracking arrives.
+      this.setMode('manual'); this.tracking = false;
+      this.status('Drag the frames on while tracking loads');
+      const late = await lmReady;
+      // (The mode may have changed while waiting: to a photo, say.)
+      if (!this.isOpen || (this.mode as MirrorMode) !== 'manual' || session !== this.session) return;
+      if (late) { this.setMode('live'); this.tracking = true; this.status('Looking for your face'); }
+      else this.status('Drag the frames onto your eyes');
+      return;
+    }
     if (lm) { this.tracking = true; this.status('Looking for your face'); }
     else { this.setMode('manual'); this.tracking = false; this.status('Drag the frames onto your eyes'); }
   }
@@ -325,7 +408,7 @@ export class MirrorEngine {
       this.irisShare = 0; this.irisSamples = 0;
       this.measureFace(ps);
       Object.assign(this.manual, { x: ps.cx / W, y: ps.cy / H, w: ps.w / W });
-      this.pose = ps; this.tracking = true; this.misses = 0;
+      this.pose = ps; this.tracking = true; this.misses = 0; this.poseSeq++;
       this.status('');
     } else {
       this.tracking = false;

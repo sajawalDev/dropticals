@@ -486,15 +486,16 @@ function clearLenses(img: ImageData) {
 }
 
 /**
- * A finished try-on image with its lens openings cleared, ready to draw. Photos cut out
- * before the openings were cleared get the same clean look. Null when the image cannot be
- * read (then the original is used).
+ * A finished try-on image with its lens openings cleared, ready to draw, at `w` x `h`
+ * (smaller is much quicker on a phone). Photos cut out before the openings were cleared
+ * get the same clean look. Null when the image cannot be read (then the original is used).
  */
-export function cleanTryOnImage(img: HTMLImageElement): HTMLCanvasElement | null {
+export function cleanTryOnImage(img: HTMLImageElement, w = img.naturalWidth, h = img.naturalHeight): HTMLCanvasElement | null {
   try {
-    const c = canvasOf(img.naturalWidth, img.naturalHeight), x = ctx2d(c);
-    x.drawImage(img, 0, 0);
-    const data = x.getImageData(0, 0, c.width, c.height);
+    const c = canvasOf(w, h), x = ctx2d(c);
+    x.imageSmoothingQuality = 'high';
+    x.drawImage(img, 0, 0, w, h);
+    const data = x.getImageData(0, 0, w, h);
     clearLenses(data);
     x.putImageData(data, 0, 0);
     return c;

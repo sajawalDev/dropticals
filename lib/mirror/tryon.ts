@@ -10,11 +10,11 @@ import { cleanTryOnImage } from '../tryon/cutout';
    side facing the camera is drawn as a tapered bar running
    back toward the ear, in the colour of the real arm.
 
-   Each photo is loaded and decoded once, with a soft shadow
-   and its colours measured, so drawing on every video frame
-   costs almost nothing. Units are millimetres from the
-   middle of the bridge: x to the right, y down, z away from
-   the camera.
+   Each photo is loaded and decoded once, scaled down, with
+   a soft shadow and its colours measured, so drawing on
+   every video frame costs almost nothing. Units are
+   millimetres from the middle of the bridge: x to the
+   right, y down, z away from the camera.
    ========================================================= */
 
 /** An iris is this wide in almost everyone: the ruler for the real size of a face. */
@@ -33,26 +33,39 @@ const WRAP = 230;
 /** How much of the arm is drawn, from the hinge back toward the ear. */
 const ARM = 100;
 const STRIPS = 36;
+/**
+ * Photos are drawn from at most this many pixels across. A frame spans fewer than that on
+ * the camera picture, so nothing is lost, and a phone prepares and draws them much faster.
+ */
+const DRAW_MAX = 720;
+/** A photo that failed to load is tried again after this long: phones drop connections. */
+const RETRY_MS = 4000;
 
 type RGB = [number, number, number];
+type Pic = HTMLImageElement | HTMLCanvasElement | ImageBitmap;
 
 export interface Loaded {
   /** The photo, with its lens openings cleared. */
-  img: HTMLImageElement | HTMLCanvasElement;
+  img: Pic;
   /** A blurred black silhouette, drawn under the frame as its shadow. */
-  shadow: HTMLCanvasElement;
+  shadow: Pic;
   /** Margin of the shadow around the photo, as a share of the photo's width. */
   pad: number;
   /** Average colour and how much of each column is filled, left to right. Empty when it could not be read. */
   cols: { rgb: RGB; fill: number }[];
 }
 
-const cache = new Map<string, Loaded | 'loading' | 'failed'>();
+/** Ready photos; 'loading'; or, after a failure, the time it failed. */
+const cache = new Map<string, Loaded | 'loading' | number>();
+let version = 0;
 
-const sizeOf = (img: HTMLImageElement | HTMLCanvasElement) =>
+/** Changes whenever another photo becomes ready to draw. */
+export const tryOnVersion = () => version;
+
+const sizeOf = (img: Pic) =>
   img instanceof HTMLImageElement ? { w: img.naturalWidth, h: img.naturalHeight } : { w: img.width, h: img.height };
 
-function makeShadow(img: HTMLImageElement | HTMLCanvasElement) {
+function makeShadow(img: Pic) {
   const size = sizeOf(img), s = Math.min(1, 320 / size.w);
   const w = Math.max(1, Math.round(size.w * s)), h = Math.max(1, Math.round(size.h * s));
   const blur = Math.max(2, Math.round(w * 0.012)), pad = blur * 3;
@@ -67,7 +80,7 @@ function makeShadow(img: HTMLImageElement | HTMLCanvasElement) {
 }
 
 /** The photo's colours column by column, for painting the arm to match. */
-function measure(img: HTMLImageElement | HTMLCanvasElement): Loaded['cols'] {
+function measure(img: Pic): Loaded['cols'] {
   try {
     const size = sizeOf(img), n = 48, h = Math.max(8, Math.min(64, Math.round((n * size.h) / size.w)));
     const c = document.createElement('canvas');
@@ -90,24 +103,90 @@ function measure(img: HTMLImageElement | HTMLCanvasElement): Loaded['cols'] {
   }
 }
 
-/** The photo, once it has loaded; until then null (and it starts loading). */
-export function tryOnImage(url: string): Loaded | null {
+/** Moves a finished canvas into an image bitmap, which draws quickly, and frees the canvas (phones limit canvas memory). */
+async function settle(c: HTMLCanvasElement): Promise<Pic> {
+  if (typeof createImageBitmap !== 'function') return c;
+  try {
+    const b = await createImageBitmap(c);
+    c.width = c.height = 0;
+    return b;
+  } catch {
+    return c;
+  }
+}
+
+/** Scales a photo down to DRAW_MAX and, for a front photo, clears its lens openings. */
+async function prepare(img: HTMLImageElement, front: boolean): Promise<Loaded> {
+  const s = Math.min(1, DRAW_MAX / img.naturalWidth);
+  const w = Math.max(1, Math.round(img.naturalWidth * s)), h = Math.max(1, Math.round(img.naturalHeight * s));
+  let pic: HTMLImageElement | HTMLCanvasElement = img;
+  if (front) pic = cleanTryOnImage(img, w, h) ?? img;
+  else if (s < 1) {
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const x = c.getContext('2d');
+    if (x) { x.imageSmoothingQuality = 'high'; x.drawImage(img, 0, 0, w, h); pic = c; }
+  }
+  const { shadow, pad } = makeShadow(pic);
+  const cols = measure(pic);
+  return { img: pic instanceof HTMLCanvasElement ? await settle(pic) : pic, shadow: await settle(shadow), pad, cols };
+}
+
+/*
+ * Photos that have downloaded wait here to be prepared, one per turn of the event loop,
+ * so the video never stalls on a pile of them. The one the mirror is waiting to draw
+ * goes first; the neighbours loaded ahead of time wait.
+ */
+const waiting: { url: string; img: HTMLImageElement; front: boolean }[] = [];
+const wanted = new Set<string>();
+let pumping = false;
+
+function pump() {
+  if (pumping || !waiting.length) return;
+  pumping = true;
+  setTimeout(async () => {
+    const i = waiting.findIndex(j => wanted.has(j.url));
+    const job = waiting.splice(Math.max(0, i), 1)[0];
+    try {
+      cache.set(job.url, await prepare(job.img, job.front));
+      version++;
+    } catch {
+      cache.set(job.url, performance.now());
+    }
+    wanted.delete(job.url);
+    pumping = false;
+    pump();
+  }, 0);
+}
+
+/** Starts loading a photo, unless it is ready, on its way, or failed only a moment ago. */
+function request(url: string, front: boolean) {
   const hit = cache.get(url);
-  if (hit && typeof hit === 'object') return hit;
-  if (hit) return null;
+  if (hit === 'loading' || (hit && typeof hit === 'object')) return;
+  if (typeof hit === 'number' && performance.now() - hit < RETRY_MS) return;
   cache.set(url, 'loading');
   const img = new Image();
   img.crossOrigin = 'anonymous';    // keeps the canvas exportable for the "take a photo" button
   img.decoding = 'async';
-  // Ready when it has loaded. decode() alone can wait for ever in a background tab.
   const loaded = new Promise<void>((ok, fail) => { img.onload = () => ok(); img.onerror = () => fail(new Error('load failed')); });
   img.src = url;
-  Promise.race([img.decode(), loaded])
-    .then(() => {
-      const ready = cleanTryOnImage(img) ?? img;
-      cache.set(url, { img: ready, ...makeShadow(ready), cols: measure(ready) });
-    })
-    .catch(() => cache.set(url, 'failed'));
+  loaded
+    // Decode off the main thread when the browser can. decode() can wait for ever in a
+    // background tab, and some browsers reject it for an image that draws fine, so it is only a head start.
+    .then(() => Promise.race([img.decode().catch(() => {}), new Promise(r => setTimeout(r, 1500))]))
+    .then(() => { waiting.push({ url, img, front }); pump(); })
+    .catch(() => cache.set(url, performance.now()));
+}
+
+/**
+ * The photo, once it is ready; until then null (and it starts loading, ahead of any
+ * photos loaded in advance). `front` is false for the arm photo, which has no lenses to clear.
+ */
+export function tryOnImage(url: string, front = true): Loaded | null {
+  const hit = cache.get(url);
+  if (hit && typeof hit === 'object') return hit;
+  wanted.add(url);
+  request(url, front);
   return null;
 }
 
@@ -115,8 +194,8 @@ export function tryOnImage(url: string): Loaded | null {
 export function preloadTryOns(list: (TryOn | null | undefined)[]) {
   for (const t of list) {
     if (!t) continue;
-    tryOnImage(t.front.url);
-    if (t.side) tryOnImage(t.side.url);
+    request(t.front.url, true);
+    if (t.side) request(t.side.url, false);
   }
 }
 
@@ -205,7 +284,7 @@ export function drawTryOnFront(ctx: CanvasRenderingContext2D, base: DOMMatrix, t
  * in 3D: the far side comes out smaller and the ends wrap back. A one-pixel bleed hides the seams.
  */
 function curved(
-  ctx: CanvasRenderingContext2D, base: DOMMatrix, P: ReturnType<typeof projector>, src: HTMLImageElement | HTMLCanvasElement,
+  ctx: CanvasRenderingContext2D, base: DOMMatrix, P: ReturnType<typeof projector>, src: Pic,
   left: number, top: number, w: number, h: number, strips: number,
 ) {
   const { w: iw, h: ih } = sizeOf(src);
