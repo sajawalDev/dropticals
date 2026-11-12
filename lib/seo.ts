@@ -4,6 +4,13 @@ import { GENDER_LABEL, finishOf, type Product } from './catalog';
 
 export const absoluteUrl = (path = '/') => (path === '/' ? SITE.url : SITE.url + path);
 
+/** "Iris Round eyeglasses", or "Amber Round eyeglasses" when the name already says the shape. */
+export function productTitle(p: Product) {
+  const shape = p.labels.shape.toLowerCase().replace(/[^a-z]/g, '');
+  const has = shape && p.name.toLowerCase().replace(/[^a-z]/g, '').includes(shape);
+  return `${p.name}${has ? '' : ` ${p.labels.shape}`} eyeglasses`;
+}
+
 interface PageMeta {
   title: string;
   description: string;
@@ -96,7 +103,7 @@ export const productLd = (p: Product) => ({
   '@context': 'https://schema.org',
   '@type': 'Product',
   '@id': absoluteUrl(`/frame/${p.id}`),
-  name: `${p.name} ${p.labels.shape} eyeglasses`,
+  name: productTitle(p),
   description: p.desc,
   sku: p.code || undefined,
   mpn: p.code || undefined,

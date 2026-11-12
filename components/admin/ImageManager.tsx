@@ -120,11 +120,13 @@ export function ImageManager({ images, onChange, colors, supabase, productName }
               <div className="adm-image__body">
                 <input className="adm-input" value={img.alt} maxLength={160} placeholder="Describe the photo"
                   aria-label={`Description of photo ${i + 1}`} onChange={e => patch(img.key, { alt: e.target.value })} disabled={img.uploading} />
-                <select className="adm-select" value={img.colorId ?? ''} aria-label={`Colour shown in photo ${i + 1}`}
-                  onChange={e => patch(img.key, { colorId: e.target.value || null })} disabled={img.uploading}>
-                  <option value="">Any colour</option>
-                  {colors.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
+                {colors.length > 1 && (
+                  <select className="adm-select" value={img.colorId ?? ''} aria-label={`Colour shown in photo ${i + 1}`}
+                    onChange={e => patch(img.key, { colorId: e.target.value || null })} disabled={img.uploading}>
+                    <option value="">Any colour</option>
+                    {colors.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                )}
                 <div className="adm-image__tools">
                   <span className="flex gap-1">
                     <button className="adm-icon-btn" type="button" aria-label="Move earlier" title="Move earlier" disabled={i === 0} onClick={() => move(img.key, -1)}><Icon name="arrowLeft" /></button>

@@ -154,6 +154,7 @@ export async function saveProduct(input: ProductInput): Promise<ActionResult<{ i
   return asAdmin(async () => {
     const name = str(input?.name, 80);
     if (!name) return fail('Give the product a name.', 'name');
+    if (!(Array.isArray(input.colors) && input.colors.some(c => isUuid(c?.colorId)))) return fail("Pick the frame's colour.", 'colour');
     const slug = slugify(str(input.slug, 80) || name);
     if (!slug) return fail('The URL name needs letters or numbers.', 'slug');
     const price = int(input.price, 0, 10_000_000, -1);
@@ -166,7 +167,7 @@ export async function saveProduct(input: ProductInput): Promise<ActionResult<{ i
 
     const colours = (Array.isArray(input.colors) ? input.colors : [])
       .filter((c, i, all) => isUuid(c?.colorId) && all.findIndex(x => x.colorId === c.colorId) === i)
-      .slice(0, 30);
+      .slice(0, 1);   // a frame comes in one colour: the one it really is
     const images = (Array.isArray(input.images) ? input.images : []).slice(0, MAX_IMAGES);
     for (const img of images) {
       if (!IMAGE_PATH.test(String(img?.path))) return fail('One of the photos was not uploaded properly. Remove it and upload it again.');

@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { Suspense } from 'react';
 import { money } from '@/lib/catalog';
 import { getCatalog, getProduct } from '@/lib/catalog-server';
-import { breadcrumbLd, pageMetadata, productLd } from '@/lib/seo';
+import { breadcrumbLd, pageMetadata, productLd, productTitle } from '@/lib/seo';
 import { ProductView, ProductViewFromUrl } from '@/components/product/ProductView';
 import { Breadcrumbs, type Crumb } from '@/components/ui/Breadcrumbs';
 import { JsonLd } from '@/components/ui/JsonLd';
@@ -25,7 +25,7 @@ export async function generateMetadata({ params }: PageProps<'/frame/[id]'>): Pr
   const p = await loadProduct(params);
   const material = p.labels.material ? `${p.labels.material} frame, ` : '';
   return pageMetadata({
-    title: `${p.name} ${p.labels.shape} eyeglasses`,
+    title: productTitle(p),
     description: `${p.desc} ${material}${p.A}□${p.D} ${p.temple}, ${money(p.price)} with plain zero-power lenses. Try it on live with your camera.`.trim(),
     path: `/frame/${p.id}`,
     image: false, // this route has its own opengraph-image

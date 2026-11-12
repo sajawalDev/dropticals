@@ -70,7 +70,8 @@ function initialState(row: ProductRow | null, filters: FilterRows, nextSort: num
     categoryId: row.category_id ?? '', shapeId: row.shape_id ?? '', materialId: row.material_id ?? '',
     A: String(row.lens_width), B: String(row.lens_height), D: String(row.bridge), temple: String(row.temple),
     inStock: row.in_stock, isActive: row.is_active, isFeatured: row.is_featured, sortOrder: String(row.sort_order),
-    colors: [...(row.product_colors ?? [])].sort((a, b) => a.position - b.position).map(c => ({ colorId: c.color_id, metalColorId: c.metal_color_id })),
+    // One colour per frame: the first, for frames listed in several before.
+    colors: [...(row.product_colors ?? [])].sort((a, b) => a.position - b.position).slice(0, 1).map(c => ({ colorId: c.color_id, metalColorId: c.metal_color_id })),
     images: [...(row.product_images ?? [])].sort((a, b) => a.sort_order - b.sort_order).map(i => ({
       key: i.id, id: i.id, path: i.path, url: i.url, alt: i.alt, colorId: i.color_id, width: i.width, height: i.height,
     })),
@@ -161,24 +162,28 @@ export function ProductForm({ row, filters, supabase, nextSort, tryons: tryonRow
     if (base) setS(prev => ({ ...prev, A: String(base.A), B: String(base.B), D: String(base.D) }));
   };
 
-  const toggleColour = (id: string) => setS(prev => ({
-    ...prev,
-    colors: prev.colors.some(c => c.colorId === id)
-      ? prev.colors.filter(c => c.colorId !== id)
-      : [...prev.colors, { colorId: id, metalColorId: metalColours[0]?.id ?? null }],
-  }));
-  const moveColour = (i: number, by: number) => setS(prev => {
-    const j = i + by;
-    if (j < 0 || j >= prev.colors.length) return prev;
-    const colors = [...prev.colors];
-    [colors[i], colors[j]] = [colors[j], colors[i]];
-    return { ...prev, colors };
+  /**
+   * A frame comes in one colour: the one it really is. Changing it moves the try-on photo
+   * and the photos tagged with the old colour over to the new one.
+   */
+  const setColour = (id: string) => setS(prev => {
+    const old = prev.colors[0]?.colorId;
+    const tryons = { ...prev.tryons };
+    if (old && id && old !== id && tryons[old] && !tryons[id]) { tryons[id] = tryons[old]; delete tryons[old]; }
+    return {
+      ...prev,
+      colors: id ? [{ colorId: id, metalColorId: prev.colors[0]?.metalColorId ?? null }] : [],
+      tryons,
+      images: prev.images.map(i => (old && i.colorId === old ? { ...i, colorId: id || null } : i)),
+    };
   });
+  const setMetal = (id: string) => setS(prev => ({ ...prev, colors: prev.colors.map(c => ({ ...c, metalColorId: id || null })) }));
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
     const errs: Record<string, string> = {};
     if (!s.name.trim()) errs.name = 'Give the product a name.';
+    if (!s.colors.length) errs.colour = "Pick the frame's colour.";
     if (s.price === '' || !(Number(s.price) >= 0)) errs.price = 'Enter a price.';
     if (s.compareAt && !(Number(s.compareAt) > Number(s.price))) errs.compareAt = 'Must be higher than the price, or empty.';
     // Try-on photos of the colours still on the product.
@@ -266,7 +271,7 @@ export function ProductForm({ row, filters, supabase, nextSort, tryons: tryonRow
         </section>
 
         <section className="adm-card">
-          <div className="adm-card__head"><div><h2>Photos</h2><p>The first photo is the cover. Tie photos to a colour to show them when that colour is picked.</p></div></div>
+          <div className="adm-card__head"><div><h2>Photos</h2><p>The first photo is the cover. Front, side and 180 photos work best.</p></div></div>
           <div className="adm-card__body">
             <ImageManager images={s.images} onChange={update => setS(prev => ({ ...prev, images: update(prev.images) }))}
               colors={filters.colors.filter(c => s.colors.some(x => x.colorId === c.id))} supabase={supabase} productName={s.name || 'Product'} />
@@ -312,47 +317,22 @@ export function ProductForm({ row, filters, supabase, nextSort, tryons: tryonRow
                 {filters.materials.map(x => <option key={x.id} value={x.id}>{x.name}{x.is_active ? '' : ' (hidden)'}</option>)}
               </Select>
             </div>
-            <div className="adm-field">
-              <span className="adm-field__label">Colours</span>
-              <div className="adm-chips" role="group" aria-label="Colours">
-                {filters.colors.map(c => {
-                  const fin = toColor(c).finish;
-                  return (
-                    <button key={c.id} className="adm-chip" type="button" aria-pressed={s.colors.some(x => x.colorId === c.id)} onClick={() => toggleColour(c.id)}>
-                      <span className="adm-swatch" style={vars({ '--sw': fin.swatch })} />{c.name}
-                    </button>
-                  );
-                })}
-              </div>
-              <small>{s.colors.length ? 'The first colour is shown first. Use the arrows to change the order.' : 'Pick at least one colour so customers can choose.'}</small>
+            <div className="adm-row">
+              <Select id="pColour" label="Frame colour" value={s.colors[0]?.colorId ?? ''} error={errors.colour}
+                hint="The colour this frame really is. Customers see only this colour." onChange={e => setColour(e.target.value)}>
+                <option value="">Pick the colour</option>
+                {filters.colors.map(c => <option key={c.id} value={c.id}>{c.name}{c.is_active ? '' : ' (hidden)'}</option>)}
+              </Select>
+              {isCombo && (
+                <Select id="pMetal" label="Metal rim colour" value={s.colors[0]?.metalColorId ?? ''} onChange={e => setMetal(e.target.value)}
+                  hint="The lower rim of an acetate-and-metal frame.">
+                  <option value="">Gold (default)</option>
+                  {metalColours.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                </Select>
+              )}
             </div>
-            {s.colors.length > 0 && (
-              <div className="adm-colour-list">
-                {s.colors.map((c, i) => {
-                  const row = filters.colors.find(x => x.id === c.colorId);
-                  if (!row) return null;
-                  return (
-                    <div className="adm-colour-row" key={c.colorId}>
-                      <span className="adm-swatch" style={vars({ '--sw': toColor(row).finish.swatch })} />
-                      <div className="flex min-w-0 flex-wrap items-center gap-2">
-                        <b className="text-sm">{i + 1}. {row.name}</b>
-                        {isCombo && (
-                          <select className="adm-select" style={{ width: 'auto' }} value={c.metalColorId ?? ''} aria-label={`Metal rim with ${row.name}`}
-                            onChange={e => setS(prev => ({ ...prev, colors: prev.colors.map(x => (x.colorId === c.colorId ? { ...x, metalColorId: e.target.value || null } : x)) }))}>
-                            <option value="">Gold rim (default)</option>
-                            {metalColours.map(m => <option key={m.id} value={m.id}>{m.name} rim</option>)}
-                          </select>
-                        )}
-                      </div>
-                      <span className="flex">
-                        <button className="adm-icon-btn" type="button" aria-label="Move up" disabled={i === 0} onClick={() => moveColour(i, -1)}><Icon name="arrowUp" /></button>
-                        <button className="adm-icon-btn" type="button" aria-label="Move down" disabled={i === s.colors.length - 1} onClick={() => moveColour(i, 1)}><Icon name="arrowDown" /></button>
-                        <button className="adm-icon-btn adm-icon-btn--danger" type="button" aria-label={`Remove ${row.name}`} onClick={() => toggleColour(c.colorId)}><Icon name="close" /></button>
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
+            {(row?.product_colors?.length ?? 0) > 1 && (
+              <p className="adm-small adm-muted">This frame was listed in {row!.product_colors!.length} colours. Saving keeps only the colour above.</p>
             )}
           </div>
         </section>
