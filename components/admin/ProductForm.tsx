@@ -257,6 +257,23 @@ export function ProductForm({ row, filters, supabase, nextSort, tryons: tryonRow
     <form className="adm-grid adm-grid--form" onSubmit={submit} noValidate>
       <div className="adm-grid">
         <section className="adm-card">
+          <div className="adm-card__head">
+            <div>
+              <h2>Photos</h2>
+              <p>
+                Shown on the frame&apos;s card in the shop, one after another: on computers while the mouse is over the card,
+                on phones every 3 seconds. Also on the frame page. Square (1:1) photos on a white background look best.
+                The first photo is the cover.
+              </p>
+            </div>
+          </div>
+          <div className="adm-card__body">
+            <ImageManager images={s.images} onChange={update => setS(prev => ({ ...prev, images: update(prev.images) }))}
+              colors={filters.colors.filter(c => s.colors.some(x => x.colorId === c.id))} supabase={supabase} productName={s.name || 'Product'} />
+          </div>
+        </section>
+
+        <section className="adm-card">
           <div className="adm-card__head"><div><h2>Basics</h2><p>What customers read on the frame page.</p></div></div>
           <div className="adm-card__body adm-form">
             <TextInput id="pName" label="Name" value={s.name} onChange={e => onName(e.target.value)} maxLength={80} required error={errors.name} placeholder="For example Iris" />
@@ -267,14 +284,6 @@ export function ProductForm({ row, filters, supabase, nextSort, tryons: tryonRow
             </div>
             <TextArea id="pDesc" label="Description" value={s.description} onChange={e => set('description', e.target.value)} maxLength={2000}
               placeholder="What makes this frame special, who it suits, how it feels." hint={`${s.description.length} / 2000`} />
-          </div>
-        </section>
-
-        <section className="adm-card">
-          <div className="adm-card__head"><div><h2>Photos</h2><p>The first photo is the cover. Front, side and 180 photos work best.</p></div></div>
-          <div className="adm-card__body">
-            <ImageManager images={s.images} onChange={update => setS(prev => ({ ...prev, images: update(prev.images) }))}
-              colors={filters.colors.filter(c => s.colors.some(x => x.colorId === c.id))} supabase={supabase} productName={s.name || 'Product'} />
           </div>
         </section>
 

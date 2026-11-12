@@ -1,20 +1,22 @@
 'use client';
 
 import { useState } from 'react';
-import { GENDER_LABEL, imageFor, money, type Product } from '@/lib/catalog';
+import { GENDER_LABEL, cardImages, money, type Product } from '@/lib/catalog';
 import { cx, reveal } from '@/lib/css';
+import { CardPhotos } from './CardPhotos';
 import { FmfButton } from './FmfButton';
-import { FrameSvg, ProductArt, frameLabel } from './FrameSvg';
+import { FrameSvg, frameLabel } from './FrameSvg';
 import { Link } from './Link';
 import { Swatches } from './Swatches';
 
-/** A frame on the wall: photo or drawing, price, colours and Frame My Face. */
+/** A frame on the wall: its photos (or drawing), price, colours and Frame My Face. */
 export function ProductItem({ product: p, index, initialFinish }: { product: Product; index?: number; initialFinish?: string }) {
   const [finish, setFinish] = useState<string>(initialFinish && p.finishes.includes(initialFinish) ? initialFinish : p.finishes[0] ?? '');
   const [picked, setPicked] = useState(false);
   const href = picked ? `/frame/${p.id}?finish=${finish}` : `/frame/${p.id}`;
   const pick = (f: string) => { setFinish(f); setPicked(true); };
-  const hasPhoto = !!imageFor(p, finish);
+  const photos = cardImages(p, finish);
+  const hasPhoto = photos.length > 0;
   const tag = !p.inStock ? 'Sold out' : p.tag;
 
   return (
@@ -22,7 +24,7 @@ export function ProductItem({ product: p, index, initialFinish }: { product: Pro
       {tag && <span className="item__tag">{tag}</span>}
       <Link className="item__art" href={href} aria-label={`${p.name}, ${p.labels.shape} frame`}>
         {hasPhoto
-          ? <ProductArt product={p} finish={finish} label={frameLabel(p, finish)} sizes="(max-width: 640px) 50vw, (max-width: 1100px) 33vw, 360px" />
+          ? <CardPhotos key={finish} images={photos} label={frameLabel(p, finish)} index={index} sizes="(max-width: 760px) 50vw, (max-width: 1100px) 33vw, 360px" />
           : <FrameSvg product={p} finish={finish} label={frameLabel(p, finish)} align="xMidYMax meet" />}
       </Link>
       <div className="item__refl" aria-hidden="true">

@@ -291,6 +291,12 @@ export const pickFinish = (p: Product, wanted?: string | null, current?: string 
 /** The try-on photos of a frame in a colour, if it has them. */
 export const tryOnFor = (p: Product, finish: string): TryOn | null => p.tryon?.[finish] ?? null;
 
+/** The photos for a frame's card, in order: those of this colour (or of no colour), else all of them. */
+export const cardImages = (p: Product, finish?: string | null): ProductImage[] => {
+  const mine = p.images.filter(i => !i.color || i.color === finish);
+  return mine.length ? mine : p.images;
+};
+
 /** The photo to show for a colour: one taken in that colour, else the first photo. */
 export const imageFor = (p: Product, finish?: string | null): ProductImage | null =>
   p.images.find(i => i.color && i.color === finish) ?? p.images[0] ?? null;

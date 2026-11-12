@@ -101,7 +101,7 @@ export function ImageManager({ images, onChange, colors, supabase, productName }
         >
           <Icon name="upload" />
           <b>{uploading ? 'Uploading…' : 'Drop photos here, or click to choose'}</b>
-          <small>JPG, PNG, WebP, AVIF, GIF or iPhone (HEIC) photos. Large photos are resized before upload. Up to {MAX_IMAGES} photos.</small>
+          <small>Square (1:1) photos on white look best. JPG, PNG, WebP, AVIF, GIF or iPhone (HEIC); large photos are resized before upload. Up to {MAX_IMAGES} photos.</small>
           <input ref={input} type="file" accept={ACCEPT} multiple aria-label="Add photos"
             onChange={e => { upload(Array.from(e.target.files ?? [])); e.target.value = ''; }} />
         </label>
