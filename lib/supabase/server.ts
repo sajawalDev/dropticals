@@ -39,3 +39,4 @@ export const hasAdminDb = () => !!(supabaseUrl() && supabaseServiceKey());
 
 export const PRODUCT_BUCKET = 'product-images';
 export const RX_BUCKET = 'prescriptions';
+export const REVIEW_BUCKET = 'review-videos';

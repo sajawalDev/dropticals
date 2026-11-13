@@ -5,11 +5,11 @@ export type PaymentStatus = 'unpaid' | 'paid' | 'refunded';
 export type Tone = 'amber' | 'blue' | 'violet' | 'sky' | 'green' | 'red' | 'gray';
 
 export const ORDER_STATUSES: { value: OrderStatus; label: string; tone: Tone; hint: string }[] = [
-  { value: 'pending', label: 'Pending', tone: 'amber', hint: 'New, not yet confirmed with the customer' },
-  { value: 'confirmed', label: 'Confirmed', tone: 'blue', hint: 'Details confirmed by phone or WhatsApp' },
+  { value: 'pending', label: 'Pending', tone: 'amber', hint: 'New: call the customer within 24 hours to confirm' },
+  { value: 'confirmed', label: 'Confirmed', tone: 'blue', hint: 'Confirmed on the call. Emails the customer: delivery in 3 to 4 days' },
   { value: 'processing', label: 'Processing', tone: 'violet', hint: 'Lenses being cut and fitted' },
   { value: 'shipped', label: 'Shipped', tone: 'sky', hint: 'On its way to the customer' },
-  { value: 'delivered', label: 'Delivered', tone: 'green', hint: 'Received by the customer' },
+  { value: 'delivered', label: 'Delivered', tone: 'green', hint: 'Fulfilled, received by the customer. Emails a review request' },
   { value: 'cancelled', label: 'Cancelled', tone: 'red', hint: 'Will not be fulfilled' },
 ];
 
@@ -46,6 +46,9 @@ export interface OrderRow {
   admin_note: string;
   created_at: string;
   updated_at: string;
+  /** When the "order confirmed" / "order delivered" emails went out (missing until the schema is updated). */
+  confirmed_email_at?: string | null;
+  delivered_email_at?: string | null;
 }
 
 export interface OrderItemRow {
@@ -69,6 +72,48 @@ export interface OrderItemRow {
   rx_file_name: string | null;
   rx_pd: string;
   rx_note: string;
+}
+
+export interface ReviewRow {
+  id: string;
+  first_name: string;
+  email: string;
+  rating: number;
+  body: string;
+  video_path: string | null;
+  video_url: string | null;
+  order_no: string;
+  show_on_home: boolean;
+  product_ids: string[];
+  is_read: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type InquiryStatus = 'new' | 'replied';
+
+export const INQUIRY_STATUSES: { value: InquiryStatus; label: string; tone: Tone }[] = [
+  { value: 'new', label: 'New', tone: 'amber' },
+  { value: 'replied', label: 'Replied', tone: 'green' },
+];
+export const isInquiryStatus = (v: unknown): v is InquiryStatus => INQUIRY_STATUSES.some(s => s.value === v);
+
+export interface InquiryRow {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  message: string;
+  status: InquiryStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+/** What still needs an admin's eye, for the sidebar badges. */
+export interface InboxCounts {
+  pending: number;
+  inquiries: number;
+  reviews: number;
 }
 
 export interface Stats {

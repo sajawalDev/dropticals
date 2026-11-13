@@ -3,8 +3,10 @@ import { notFound } from 'next/navigation';
 import { Suspense } from 'react';
 import { money } from '@/lib/catalog';
 import { getCatalog, getProduct } from '@/lib/catalog-server';
+import { getProductReviews } from '@/lib/reviews-server';
 import { breadcrumbLd, pageMetadata, productLd, productTitle } from '@/lib/seo';
 import { ProductView, ProductViewFromUrl } from '@/components/product/ProductView';
+import { ReviewWall } from '@/components/reviews/ReviewWall';
 import { Breadcrumbs, type Crumb } from '@/components/ui/Breadcrumbs';
 import { JsonLd } from '@/components/ui/JsonLd';
 import { Link } from '@/components/ui/Link';
@@ -34,7 +36,7 @@ export async function generateMetadata({ params }: PageProps<'/frame/[id]'>): Pr
 
 export default async function ProductPage({ params }: PageProps<'/frame/[id]'>) {
   const p = await loadProduct(params);
-  const { products } = await getCatalog();
+  const [{ products }, reviews] = await Promise.all([getCatalog(), getProductReviews(p.uuid)]);
   const related = products.filter(x => x.id !== p.id && (x.shape === p.shape || x.gender === p.gender)).slice(0, 4);
   const trail: Crumb[] = [
     { name: 'Home', href: '/' },
@@ -56,6 +58,8 @@ export default async function ProductPage({ params }: PageProps<'/frame/[id]'>) 
       <Suspense fallback={<ProductView product={p} />}>
         <ProductViewFromUrl product={p} />
       </Suspense>
+
+      <ReviewWall reviews={reviews} title={`Reviews of ${p.name}`} sub="What customers say about this frame." />
 
       {related.length > 0 && (
         <section className="section section--clinic">

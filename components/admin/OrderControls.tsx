@@ -8,6 +8,17 @@ import { cx } from '@/lib/css';
 import { Icon } from '@/components/ui/Icon';
 import { confirmDialog, toast, toastError } from './feedback';
 
+const MAIL_NOTE: Record<string, string> = {
+  sent: 'Email sent to {email}.',
+  'already-sent': 'The customer already had this email, so it was not sent again.',
+  'no-email': 'No email address on this order, so no email was sent.',
+  failed: 'The email could not be sent. Check SMTP_ADMIN and SMTP_PASS.',
+  none: '',
+};
+
+const sentAt = (iso?: string | null) =>
+  iso ? new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Karachi' }) : '';
+
 /** Status, payment and the private note of an order, saved as they change. */
 export function OrderControls({ order }: { order: OrderRow }) {
   const router = useRouter();
@@ -21,7 +32,10 @@ export function OrderControls({ order }: { order: OrderRow }) {
 
   const save = (patch: Parameters<typeof updateOrder>[1], done: string) => start(async () => {
     const res = await updateOrder(order.id, patch);
-    if (res.ok) toast(done); else toastError(res.error);
+    if (!res.ok) { toastError(res.error); return; }
+    const mail = MAIL_NOTE[res.mail ?? 'none'];
+    if (mail && res.mail === 'failed') toastError(`${done}. ${mail}`);
+    else toast(done, mail ? { body: mail.replace('{email}', order.email) } : undefined);
   });
 
   const remove = async () => {
@@ -45,7 +59,18 @@ export function OrderControls({ order }: { order: OrderRow }) {
   return (
     <>
       <section className="adm-card">
-        <div className="adm-card__head"><div><h2>Status</h2><p>The customer is not notified automatically.</p></div></div>
+        <div className="adm-card__head">
+          <div>
+            <h2>Status</h2>
+            <p>Call the customer to confirm, then mark it Confirmed. Confirmed and Delivered each email the customer once.</p>
+          </div>
+        </div>
+        {(order.confirmed_email_at || order.delivered_email_at) && (
+          <div className="adm-card__body flex flex-wrap gap-2 pb-0">
+            {order.confirmed_email_at && <span className="adm-badge" data-tone="blue"><Icon name="mail" />Confirmation email {sentAt(order.confirmed_email_at)}</span>}
+            {order.delivered_email_at && <span className="adm-badge" data-tone="green"><Icon name="mail" />Review request {sentAt(order.delivered_email_at)}</span>}
+          </div>
+        )}
         <div className="adm-card__body grid gap-4">
           <div className="grid gap-2" role="radiogroup" aria-label="Order status">
             {ORDER_STATUSES.map((s, i) => (

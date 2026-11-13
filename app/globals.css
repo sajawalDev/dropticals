@@ -15,6 +15,7 @@
 @import "../styles/overlays.css";
 @import "../styles/mirror.css";
 @import "../styles/reduced-motion.css";
+@import "../styles/customers.css";
 
 /* Design tokens exposed to Tailwind utilities (bg-clinic, text-ink-3, font-serif, ease-brand, …). */
 @theme inline {

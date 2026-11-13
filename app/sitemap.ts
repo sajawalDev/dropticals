@@ -21,5 +21,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     page('/lenses', 0.7),
     page('/about', 0.5),
     page('/contact', 0.5),
+    page('/return-policy', 0.4),
   ];
 }

@@ -1,12 +1,16 @@
 'use server';
 
+import { sendOrderStatusEmail, type StatusMailResult } from '@/lib/mail/orders';
 import { adminDb, RX_BUCKET } from '@/lib/supabase/server';
 import { asAdmin, dbMessage, fail, isUuid, refresh, str, type ActionResult } from '../guard';
 import { isOrderStatus, isPaymentStatus } from '../types';
 
-/* Updating and deleting orders. */
+/* Updating and deleting orders. Marking an order Confirmed or Delivered emails the customer. */
 
-export async function updateOrder(id: string, patch: { status?: string; payment_status?: string; admin_note?: string }): Promise<ActionResult> {
+export async function updateOrder(
+  id: string,
+  patch: { status?: string; payment_status?: string; admin_note?: string },
+): Promise<ActionResult<{ mail?: StatusMailResult }>> {
   return asAdmin(async () => {
     if (!isUuid(id)) return fail('That order was not found.');
     const update: Record<string, string> = {};
@@ -22,8 +26,9 @@ export async function updateOrder(id: string, patch: { status?: string; payment_
     if (!Object.keys(update).length) return { ok: true };
     const { error } = await adminDb().from('orders').update(update).eq('id', id);
     if (error) return fail(dbMessage(error, 'order'));
+    const mail = update.status ? await sendOrderStatusEmail(id, update.status).catch(() => 'failed' as const) : undefined;
     refresh();
-    return { ok: true };
+    return { ok: true, mail };
   });
 }
 

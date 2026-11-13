@@ -2,7 +2,9 @@ import type { Metadata } from 'next';
 import { getCatalog } from '@/lib/catalog-server';
 import { SITE, whatsappHref } from '@/lib/config';
 import { reveal } from '@/lib/css';
+import { getHomeReviews } from '@/lib/reviews-server';
 import { itemListLd, pageMetadata } from '@/lib/seo';
+import { ReviewWall } from '@/components/reviews/ReviewWall';
 import { HeroChart } from '@/components/home/HeroChart';
 import { OrderSteps } from '@/components/home/OrderSteps';
 import { PhoneMock } from '@/components/home/PhoneMock';
@@ -31,7 +33,7 @@ const SERVICES = [
 ];
 
 export default async function HomePage() {
-  const { products } = await getCatalog();
+  const [{ products }, reviews] = await Promise.all([getCatalog(), getHomeReviews()]);
   const featured = products.filter(p => p.featured);
   const wall = (featured.length ? featured : products).slice(0, 8);
   const first = wall[0];
@@ -118,7 +120,13 @@ export default async function HomePage() {
         </section>
       )}
 
-      <section className="section">
+      <ReviewWall
+        reviews={reviews}
+        title="What our customers say"
+        sub="Real words, and real faces, from people wearing Dr's Opticals."
+      />
+
+      <section className={reviews.length ? 'section border-t border-line' : 'section'}>
         <div className="wrap">
           <div className="sec-head">
             <div>

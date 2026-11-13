@@ -18,6 +18,7 @@ export interface ChangeMessage {
   total?: number;
   status?: string;
   name?: string;
+  rating?: number;
 }
 
 let client: Promise<SupabaseClient> | null = null;

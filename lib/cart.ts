@@ -35,6 +35,9 @@ export interface Order {
   total: number;
   name: string;
   phone: string;
+  email?: string;
+  /** Whether the "thank you for your order" email went out. */
+  emailed?: boolean;
 }
 
 const EMPTY: CartItem[] = [];
@@ -84,6 +87,42 @@ export const useCart = () => useSyncExternalStore(subscribe, load, () => EMPTY);
 
 /** How many times something was added to the bag in this visit (drives the badge bump). */
 export const useCartAdds = () => useSyncExternalStore(subscribe, () => adds, () => 0);
+
+/* =========================================================
+   "Place order" on a frame page: checks out that one frame
+   straight away and leaves the bag as it is.
+   ========================================================= */
+
+const nowListeners = new Set<() => void>();
+let nowItem: CartItem | null | undefined;
+
+const loadNow = () => (nowItem === undefined ? (nowItem = store.get<CartItem | null>('buyNow', null)) : nowItem);
+
+function commitNow(next: CartItem | null) {
+  nowItem = next;
+  store.set('buyNow', next);
+  nowListeners.forEach(l => l());
+}
+
+export const buyNow = {
+  set(item: Omit<CartItem, 'key' | 'qty'>): CartItem {
+    const it = { ...item, key: 'now-' + Date.now().toString(36), qty: 1 };
+    commitNow(it);
+    return it;
+  },
+  setQty(qty: number) {
+    const it = loadNow();
+    if (it) commitNow({ ...it, qty: clamp(qty, 1, 5) });
+  },
+  clear() { commitNow(null); },
+};
+
+/** The frame being bought with "Place order", or null. */
+export const useBuyNow = () => useSyncExternalStore(
+  fn => { nowListeners.add(fn); return () => { nowListeners.delete(fn); }; },
+  loadNow,
+  () => null,
+);
 
 export const saveOrder = (o: Order) => store.set('lastOrder', o);
 export const readOrder = () => store.get<Order | null>('lastOrder', null);

@@ -12,11 +12,12 @@
 --   3. Products, product colours, product photos and try-on photos
 --   4. The announcement bar at the top of the site
 --   5. Orders and order items
+--   5b. Customer reviews and contact-form messages (inquiries)
 --   6. Row level security (customers read the catalogue only;
 --      orders and admin data are reachable with the service key only)
 --   7. Realtime: tables added to the supabase_realtime publication,
 --      plus database broadcasts the dashboard listens to
---   8. Storage buckets for product photos and prescriptions
+--   8. Storage buckets for product photos, prescriptions and review videos
 --   9. The current catalogue as starting data
 --
 -- The admin account is added separately (see the admin SQL you
@@ -269,6 +270,10 @@ create table if not exists public.orders (
   created_at       timestamptz not null default now(),
   updated_at       timestamptz not null default now()
 );
+-- When the "order confirmed" and "order delivered" emails went out, so each is sent once.
+alter table public.orders add column if not exists confirmed_email_at timestamptz;
+alter table public.orders add column if not exists delivered_email_at timestamptz;
+
 create index if not exists orders_created_idx on public.orders (created_at desc);
 create index if not exists orders_status_idx on public.orders (status, created_at desc);
 
@@ -420,6 +425,47 @@ $$;
 
 
 -- ---------------------------------------------------------
+-- 5b. Reviews and inquiries
+-- ---------------------------------------------------------
+
+-- Reviews customers write at /review (usually from the "order delivered" email).
+-- A review shows nowhere until an admin puts it on the home page (show_on_home)
+-- or on one or more product pages (product_ids).
+create table if not exists public.reviews (
+  id           uuid primary key default gen_random_uuid(),
+  first_name   text not null check (length(btrim(first_name)) between 1 and 60),
+  email        text not null default '',
+  rating       smallint not null check (rating between 1 and 5),
+  body         text not null default '' check (length(body) <= 2000),
+  video_path   text,
+  video_url    text,
+  order_no     text not null default '',
+  show_on_home boolean not null default false,
+  product_ids  uuid[] not null default '{}',
+  is_read      boolean not null default false,
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now()
+);
+create index if not exists reviews_created_idx on public.reviews (created_at desc);
+create index if not exists reviews_home_idx on public.reviews (created_at desc) where show_on_home;
+create index if not exists reviews_products_idx on public.reviews using gin (product_ids);
+
+-- Messages sent from the contact page.
+create table if not exists public.inquiries (
+  id         uuid primary key default gen_random_uuid(),
+  name       text not null check (length(btrim(name)) between 1 and 80),
+  email      text not null,
+  phone      text not null default '',
+  message    text not null check (length(btrim(message)) between 1 and 4000),
+  status     text not null default 'new' check (status in ('new', 'replied')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists inquiries_created_idx on public.inquiries (created_at desc);
+create index if not exists inquiries_status_idx on public.inquiries (status, created_at desc);
+
+
+-- ---------------------------------------------------------
 -- updated_at triggers
 -- ---------------------------------------------------------
 
@@ -427,7 +473,7 @@ do $$
 declare
   t text;
 begin
-  foreach t in array array['admin_users', 'categories', 'shapes', 'materials', 'colors', 'products', 'announcements', 'orders'] loop
+  foreach t in array array['admin_users', 'categories', 'shapes', 'materials', 'colors', 'products', 'announcements', 'orders', 'reviews', 'inquiries'] loop
     execute format('drop trigger if exists set_updated_at on public.%I', t);
     execute format('create trigger set_updated_at before update on public.%I for each row execute function public.set_updated_at()', t);
   end loop;
@@ -453,6 +499,8 @@ alter table public.product_tryons       enable row level security;
 alter table public.announcements        enable row level security;
 alter table public.orders               enable row level security;
 alter table public.order_items          enable row level security;
+alter table public.reviews              enable row level security;
+alter table public.inquiries            enable row level security;
 
 -- The storefront may read the catalogue. Nobody but the server may write.
 drop policy if exists "Catalogue: read categories" on public.categories;
@@ -492,6 +540,15 @@ revoke insert, update, delete, truncate on table
   public.categories, public.shapes, public.materials, public.colors,
   public.products, public.product_colors, public.product_images, public.product_tryons, public.announcements
   from anon, authenticated;
+
+-- Reviews an admin has published can be read by the shop, without the customer's email:
+-- only the listed columns are granted. Inquiries are reachable with the service key only.
+drop policy if exists "Reviews: read published" on public.reviews;
+create policy "Reviews: read published" on public.reviews for select to anon, authenticated
+  using (show_on_home or cardinality(product_ids) > 0);
+revoke all on table public.reviews, public.inquiries from anon, authenticated;
+grant select (id, first_name, rating, body, video_url, show_on_home, product_ids, created_at)
+  on public.reviews to anon, authenticated;
 
 revoke execute on function public.create_order(jsonb, jsonb) from public, anon, authenticated;
 revoke execute on function public.admin_stats(integer) from public, anon, authenticated;
@@ -551,15 +608,25 @@ begin
 
   v_payload := jsonb_build_object('table', tg_table_name, 'op', tg_op, 'id', v_id);
 
-  if tg_table_name = 'orders' then
+  if tg_table_name in ('orders', 'reviews', 'inquiries') then
+    -- The shop shows published reviews, so it hears about review changes too (table and id only).
+    if tg_table_name = 'reviews' then
+      perform realtime.send(v_payload, 'change', 'catalog', false);
+    end if;
     select s.value into v_topic from public.admin_settings s where s.key = 'realtime_topic';
     if v_topic is null then
       return null;
     end if;
     if tg_op <> 'DELETE' then
-      v_payload := v_payload || jsonb_build_object(
-        'no', new.order_no, 'total', new.total, 'status', new.status, 'name', new.customer_name
-      );
+      if tg_table_name = 'orders' then
+        v_payload := v_payload || jsonb_build_object(
+          'no', new.order_no, 'total', new.total, 'status', new.status, 'name', new.customer_name
+        );
+      elsif tg_table_name = 'reviews' then
+        v_payload := v_payload || jsonb_build_object('name', new.first_name, 'rating', new.rating);
+      else
+        v_payload := v_payload || jsonb_build_object('name', new.name);
+      end if;
     end if;
   else
     v_topic := 'catalog';
@@ -579,7 +646,7 @@ do $$
 declare
   t text;
 begin
-  foreach t in array array['products', 'product_images', 'categories', 'shapes', 'materials', 'colors', 'announcements', 'orders'] loop
+  foreach t in array array['products', 'product_images', 'categories', 'shapes', 'materials', 'colors', 'announcements', 'orders', 'reviews', 'inquiries'] loop
     execute format('drop trigger if exists broadcast_change on public.%I', t);
     execute format(
       'create trigger broadcast_change after insert or update or delete on public.%I for each row execute function public.broadcast_change()',
@@ -607,6 +674,17 @@ on conflict (id) do update
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('prescriptions', 'prescriptions', false, 10485760,
         array['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'application/pdf'])
+on conflict (id) do update
+  set public = excluded.public,
+      file_size_limit = excluded.file_size_limit,
+      allowed_mime_types = excluded.allowed_mime_types;
+
+
+-- Review videos: public, so the shop can play the ones an admin publishes.
+-- Files are stored under random names; 50 MB is the largest a free Supabase project allows.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('review-videos', 'review-videos', true, 52428800,
+        array['video/mp4', 'video/quicktime', 'video/webm', 'video/x-m4v', 'video/3gpp'])
 on conflict (id) do update
   set public = excluded.public,
       file_size_limit = excluded.file_size_limit,
@@ -737,5 +815,6 @@ select
     select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'realtime' and p.proname = 'send'
   ) as realtime_broadcast_available,
-  (select count(*) from storage.buckets where id in ('product-images', 'prescriptions')) = 2 as storage_buckets_ready,
-  to_regclass('public.product_tryons') is not null as tryon_photos_ready;
+  (select count(*) from storage.buckets where id in ('product-images', 'prescriptions', 'review-videos')) = 3 as storage_buckets_ready,
+  to_regclass('public.product_tryons') is not null as tryon_photos_ready,
+  to_regclass('public.reviews') is not null and to_regclass('public.inquiries') is not null as reviews_and_inquiries_ready;

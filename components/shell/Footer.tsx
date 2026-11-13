@@ -41,6 +41,8 @@ export function Footer({ shapes }: { shapes: ShapeOption[] }) {
                 <li><Link href="/lenses">Lens guide</Link></li>
                 <li><Link href="/lenses">Reading your prescription</Link></li>
                 <li><Link href="/contact">Questions</Link></li>
+                <li><Link href="/return-policy">Returns and exchanges</Link></li>
+                <li><Link href="/review">Write a review</Link></li>
                 <li><Link href="/bag">Your bag</Link></li>
               </ul>
             </div>

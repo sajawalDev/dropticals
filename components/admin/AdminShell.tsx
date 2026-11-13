@@ -4,6 +4,7 @@ import NextLink from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { logout } from '@/lib/admin/actions/auth';
+import type { InboxCounts } from '@/lib/admin/types';
 import { money } from '@/lib/catalog';
 import { cx } from '@/lib/css';
 import type { IconName } from '@/lib/icons';
@@ -13,9 +14,15 @@ import { Icon } from '@/components/ui/Icon';
 import { LogoPartSvg } from '@/components/ui/Logo';
 import { ConfirmHost, Toaster, toast } from './feedback';
 
-const NAV: { section: string; items: { href: string; label: string; icon: IconName; badge?: 'pending' }[] }[] = [
+const NAV: { section: string; items: { href: string; label: string; icon: IconName; badge?: keyof InboxCounts }[] }[] = [
   { section: 'Overview', items: [{ href: '/admin', label: 'Dashboard', icon: 'grid' }] },
   { section: 'Sales', items: [{ href: '/admin/orders', label: 'Orders', icon: 'receipt', badge: 'pending' }] },
+  {
+    section: 'Customers', items: [
+      { href: '/admin/reviews', label: 'Reviews', icon: 'star', badge: 'reviews' },
+      { href: '/admin/inquiries', label: 'Inquiries', icon: 'mail', badge: 'inquiries' },
+    ],
+  },
   {
     section: 'Catalogue', items: [
       { href: '/admin/products', label: 'Products', icon: 'box' },
@@ -46,16 +53,19 @@ function chime() {
   } catch { /* sound is optional */ }
 }
 
+const BADGE_LABEL: Record<keyof InboxCounts, string> = { pending: 'pending', inquiries: 'new', reviews: 'new' };
+
 interface Props {
   admin: { name: string; email: string };
-  pending: number;
+  counts: InboxCounts;
   supabase: PublicSupabase | null;
   topic: string | null;
   children: ReactNode;
 }
 
 /** The dashboard frame: sidebar, top bar, toasts, and live updates from the database. */
-export function AdminShell({ admin, pending, supabase, topic, children }: Props) {
+export function AdminShell({ admin, counts, supabase, topic, children }: Props) {
+  const pending = counts.pending;
   const pathname = usePathname();
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -74,6 +84,13 @@ export function AdminShell({ admin, pending, supabase, topic, children }: Props)
   useEffect(() => {
     if (!supabase) return;
     let timer = 0;
+    // While the tab is in the background, count new arrivals in its title.
+    const bumpTitle = () => {
+      if (!document.hidden) return;
+      unseen.current += 1;
+      baseTitle.current ||= document.title.replace(/^\(\d+\)\s*/, '');
+      document.title = `(${unseen.current}) ${baseTitle.current}`;
+    };
     const onChange = (msg: ChangeMessage) => {
       clearTimeout(timer);
       timer = window.setTimeout(() => router.refresh(), 450);
@@ -88,11 +105,23 @@ export function AdminShell({ admin, pending, supabase, topic, children }: Props)
             </span>
           ),
         });
-        if (document.hidden) {
-          unseen.current += 1;
-          baseTitle.current ||= document.title.replace(/^\(\d+\)\s*/, '');
-          document.title = `(${unseen.current}) ${baseTitle.current}`;
-        }
+        bumpTitle();
+      }
+      if (msg.table === 'inquiries' && msg.op === 'INSERT') {
+        chime();
+        toast(`New message${msg.name ? ` from ${msg.name}` : ''}`, {
+          kind: 'order',
+          body: <span>From the contact page. <NextLink href="/admin/inquiries">Read it</NextLink></span>,
+        });
+        bumpTitle();
+      }
+      if (msg.table === 'reviews' && msg.op === 'INSERT') {
+        chime();
+        toast(`New review${msg.name ? ` from ${msg.name}` : ''}`, {
+          kind: 'order',
+          body: <span>{typeof msg.rating === 'number' ? `${'★'.repeat(msg.rating)}${'☆'.repeat(5 - msg.rating)} ` : ''}<NextLink href="/admin/reviews">Open</NextLink></span>,
+        });
+        bumpTitle();
       }
     };
     const stop = listen(supabase, {
@@ -135,7 +164,9 @@ export function AdminShell({ admin, pending, supabase, topic, children }: Props)
                   <NextLink key={item.href} href={item.href} aria-current={isCurrent(item.href) ? 'page' : undefined}>
                     <Icon name={item.icon} />
                     {item.label}
-                    {item.badge === 'pending' && pending > 0 && <span className="adm-nav__count" aria-label={`${pending} pending`}>{pending}</span>}
+                    {item.badge && counts[item.badge] > 0 && (
+                      <span className="adm-nav__count" aria-label={`${counts[item.badge]} ${BADGE_LABEL[item.badge]}`}>{counts[item.badge]}</span>
+                    )}
                   </NextLink>
                 ))}
               </div>

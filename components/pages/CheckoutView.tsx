@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { LENSES, money, visionLabel } from '@/lib/catalog';
-import { cart, cartSubtotal, linePrice, saveOrder, useCart, type CartItem, type Order } from '@/lib/cart';
+import { buyNow, cart, cartSubtotal, linePrice, saveOrder, useBuyNow, useCart, type CartItem, type Order } from '@/lib/cart';
 import { CONFIG, whatsappHref } from '@/lib/config';
 import { useHydrated } from '@/lib/hooks';
 import { placeOrder } from '@/lib/shop-actions';
@@ -12,6 +13,7 @@ import { Field } from '@/components/ui/Field';
 import { ProductArt } from '@/components/ui/FrameSvg';
 import { Icon } from '@/components/ui/Icon';
 import { Link } from '@/components/ui/Link';
+import { Spinner } from '@/components/ui/Spinner';
 import { Words } from '@/components/ui/Words';
 import { useNavigate } from '@/components/shell/NavigationProvider';
 
@@ -20,11 +22,33 @@ const PAYMENTS: [Order['pay'], string, string][] = [
   ['bank', 'Bank transfer', 'We send the account details by WhatsApp after you order.'],
 ];
 
-/** Checkout: delivery details, payment choice and the order summary. */
-export function CheckoutView() {
+/** Reads ?now=1 (set by "Place order" on a frame page). Rendered inside <Suspense>. */
+export function CheckoutFromUrl() {
+  return <CheckoutView now={useSearchParams().get('now') === '1'} />;
+}
+
+/** The agreement shown right above every Place order button at checkout. */
+export function PolicyAgreement() {
+  return (
+    <p className="policy-note">
+      By continuing with placing your order, you agree to our{' '}
+      <Link href="/return-policy" className="policy-link">Return, Exchange &amp; Replacement Policy</Link>.
+      Prescription lenses are made to order, so please check your details before you confirm.
+    </p>
+  );
+}
+
+/**
+ * Checkout: delivery details, payment choice and the order summary. With `now`,
+ * it checks out the frame chosen with "Place order" on its page, and the bag is left alone.
+ */
+export function CheckoutView({ now = false }: { now?: boolean }) {
   const navigate = useNavigate();
   const hydrated = useHydrated();
-  const cartItems = useCart();
+  const bagItems = useCart();
+  const quick = useBuyNow();
+  const single = now && !!quick;
+  const cartItems = single && quick ? [quick] : bagItems;
   const { byId } = useCatalog();
   const [placed, setPlaced] = useState<CartItem[] | null>(null);
   const [pay, setPay] = useState<Order['pay']>('cod');
@@ -75,16 +99,23 @@ export function CheckoutView() {
       setSending(false);
       return;
     }
-    saveOrder({ no: res.orderNo, pay, items, total: res.total, name: get('name'), phone: get('phone') });
+    saveOrder({ no: res.orderNo, pay, items, total: res.total, name: get('name'), phone: get('phone'), email: get('email'), emailed: res.emailed });
     setPlaced(items);
-    cart.clear();
+    if (single) buyNow.clear(); else cart.clear();
     navigate('/order/' + res.orderNo);
   };
   const bad = (id: string) => invalid?.has(id);
 
   return (
     <>
-      <section className="page-head pb-8"><div className="wrap"><Words as="h1" className="h1">Checkout</Words></div></section>
+      <section className="page-head pb-8">
+        <div className="wrap">
+          <Words as="h1" className="h1">Checkout</Words>
+          {single && bagItems.length > 0 && (
+            <p className="lead mt-4">You are ordering this frame on its own. The {bagItems.length === 1 ? 'frame' : 'frames'} in your bag stay there for later.</p>
+          )}
+        </div>
+      </section>
       <div className="wrap bag">
         <form className="form" noValidate onSubmit={submit}>
           <h2 className="h3">Your details</h2>
@@ -93,8 +124,8 @@ export function CheckoutView() {
             <Field id="cPhone" name="phone" label="Phone number" type="tel" autoComplete="tel" required placeholder="03XX XXXXXXX"
               error="Enter a phone number for delivery." invalid={bad('cPhone')} />
           </div>
-          <Field id="cEmail" name="email" label="Email, for your receipt" type="email" autoComplete="email" placeholder="Optional"
-            error="Check the email address." invalid={bad('cEmail')} />
+          <Field id="cEmail" name="email" label="Email, for your order confirmation" type="email" autoComplete="email" required
+            placeholder="you@example.com" error="Enter your email so we can send your order confirmation." invalid={bad('cEmail')} />
 
           <h2 className="h3 mt-5">Delivery address</h2>
           <Field id="cAddr" name="address" label="Street address" autoComplete="street-address" required error="Enter your street address." invalid={bad('cAddr')} />
@@ -130,8 +161,9 @@ export function CheckoutView() {
               <span>{error} <a className="link" href={whatsappHref} target="_blank" rel="noopener">WhatsApp us</a> if it keeps happening.</span>
             </p>
           )}
-          <button className="btn btn--block mt-3" type="submit" disabled={sending || missingRx.length > 0} aria-disabled={sending || missingRx.length > 0}>
-            {sending ? 'Placing your order…' : `Place order, ${money(total)}`}
+          <PolicyAgreement />
+          <button className={sending ? 'btn btn--block is-busy' : 'btn btn--block'} type="submit" disabled={sending || missingRx.length > 0} aria-disabled={sending || missingRx.length > 0}>
+            {sending ? <><Spinner label="Placing your order" />Placing your order…</> : `Place order, ${money(total)}`}
           </button>
         </form>
 

@@ -3,6 +3,7 @@
 import { LENSES, isLens, type Vision } from './catalog';
 import { buildProduct, makeLookups, PRODUCT_COLUMNS, type FilterRows, type ProductRow } from './catalog-build';
 import { CONFIG } from './config';
+import { sendOrderPlacedEmails } from './mail/orders';
 import { adminDb, hasAdminDb, RX_BUCKET } from './supabase/server';
 
 /* =========================================================
@@ -59,7 +60,7 @@ export interface OrderInput {
 const text = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().replace(/\s+/g, ' ').slice(0, max) : '');
 
 /** Places an order. Returns its number, or what needs fixing. */
-export async function placeOrder(input: OrderInput): Promise<Result<{ orderNo: string; total: number }>> {
+export async function placeOrder(input: OrderInput): Promise<Result<{ orderNo: string; total: number; emailed: boolean }>> {
   if (!hasAdminDb()) return { ok: false, error: 'Online ordering is not available right now. Please message us on WhatsApp to order.' };
 
   const name = text(input?.name, 80);
@@ -71,7 +72,7 @@ export async function placeOrder(input: OrderInput): Promise<Result<{ orderNo: s
   const pay = input?.pay === 'bank' ? 'bank' : 'cod';
   if (name.length < 2) return { ok: false, error: 'Enter your full name.' };
   if (phone.replace(/\D/g, '').length < 7) return { ok: false, error: 'Enter a phone number for delivery.' };
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, error: 'Check the email address.' };
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, error: 'Enter your email address for your order confirmation.' };
   if (address.length < 4) return { ok: false, error: 'Enter your street address.' };
   if (city.length < 2) return { ok: false, error: 'Enter your city.' };
 
@@ -150,5 +151,11 @@ export async function placeOrder(input: OrderInput): Promise<Result<{ orderNo: s
     console.error('[order] create_order failed:', error?.message);
     return { ok: false, error: 'We could not place your order. Please try again in a moment.' };
   }
-  return { ok: true, orderNo: (data as { order_no: string }).order_no, total };
+  const placed = data as { id: string; order_no: string };
+  // "Thank you for your order" to the customer and "New order" to the shop. The order stands even if an email fails.
+  const mail = await sendOrderPlacedEmails(placed.id).catch(e => {
+    console.error('[order] emails failed:', e);
+    return { customer: false, admin: false };
+  });
+  return { ok: true, orderNo: placed.order_no, total, emailed: mail.customer };
 }

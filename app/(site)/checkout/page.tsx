@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
+import { Suspense } from 'react';
 import { pageMetadata } from '@/lib/seo';
-import { CheckoutView } from '@/components/pages/CheckoutView';
+import { CheckoutFromUrl, CheckoutView } from '@/components/pages/CheckoutView';
 
 export async function generateMetadata(): Promise<Metadata> {
   return pageMetadata({
@@ -12,5 +13,10 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default function CheckoutPage() {
-  return <CheckoutView />;
+  // ?now=1 is read in the browser; the static page shows the bag until then.
+  return (
+    <Suspense fallback={<CheckoutView />}>
+      <CheckoutFromUrl />
+    </Suspense>
+  );
 }

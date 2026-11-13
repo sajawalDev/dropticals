@@ -9,7 +9,7 @@ import {
   finishOf, imageFor, lensPrice, money, pickFinish, plusMoney, visionLabel,
   type LensKey, type Product, type Vision,
 } from '@/lib/catalog';
-import { cart } from '@/lib/cart';
+import { buyNow, cart } from '@/lib/cart';
 import { whatsappHref } from '@/lib/config';
 import { cx } from '@/lib/css';
 import { frameWidth, techSvgMarkup } from '@/lib/frames';
@@ -18,10 +18,12 @@ import { prepareRxUpload } from '@/lib/shop-actions';
 import { openDrawer } from '@/lib/ui-events';
 import { uploadSigned } from '@/lib/upload';
 import { useCatalog } from '@/components/shell/CatalogProvider';
+import { useNavigate } from '@/components/shell/NavigationProvider';
 import { FmfButton } from '@/components/ui/FmfButton';
 import { FrameSvg, frameLabel } from '@/components/ui/FrameSvg';
 import { Icon } from '@/components/ui/Icon';
 import { Link } from '@/components/ui/Link';
+import { Spinner } from '@/components/ui/Spinner';
 import { Swatches } from '@/components/ui/Swatches';
 import { Words } from '@/components/ui/Words';
 import type { IconName } from '@/lib/icons';
@@ -47,7 +49,9 @@ export function ProductView({ product: p, initialFinish }: { product: Product; i
   const [lens, setLens] = useState<LensKey | null>(null);
   const [rx, setRx] = useState<{ file: File; url: string } | null>(null);
   const [rxError, setRxError] = useState('');
-  const [busy, setBusy] = useState(false);
+  // Which button is working: adding to the bag, or placing the order straight away.
+  const [busy, setBusy] = useState<'' | 'bag' | 'now'>('');
+  const navigate = useNavigate();
   const [dragging, setDragging] = useState(false);
   const [pd, setPd] = useState('');
   const [note, setNote] = useState('');
@@ -116,26 +120,40 @@ export function ProductView({ product: p, initialFinish }: { product: Product; i
     return link.path;
   };
 
-  const addToBag = async () => {
-    if (why || !vision || !lens || busy) return;
+  /** The chosen frame as a bag line, with the prescription uploaded first. Null if the upload failed. */
+  const prepareLine = async (mode: 'bag' | 'now') => {
+    if (why || !vision || !lens || busy) return null;
     let path: string | undefined;
     if (vision === 'rx' && rx) {
-      setBusy(true);
+      setBusy(mode);
       try {
         path = await uploadRx(rx.file);
       } catch (e) {
         setRxError(e instanceof Error && e.message ? e.message : 'The upload did not go through. Check your connection and try again.');
-        setBusy(false);
-        return;
+        setBusy('');
+        return null;
       }
-      setBusy(false);
+      if (mode === 'bag') setBusy('');
     }
-    const item = cart.add({
+    return {
       productId: p.id, finish, vision, lens,
       rx: vision === 'rx' && rx ? { name: rx.file.name, size: rx.file.size, pd: pd.trim(), note: note.trim(), path } : null,
       unit: p.price + lensPrice(lens, vision),
-    });
-    openDrawer(item);
+    };
+  };
+
+  const addToBag = async () => {
+    const line = await prepareLine('bag');
+    if (line) openDrawer(cart.add(line));
+  };
+
+  /** Place order: straight to checkout with this frame only. The bag is left as it is. */
+  const placeOrderNow = async () => {
+    setBusy('now');
+    const line = await prepareLine('now');
+    if (!line) { setBusy(''); return; }
+    buyNow.set(line);
+    navigate('/checkout?now=1');
   };
 
   return (
@@ -260,7 +278,7 @@ export function ProductView({ product: p, initialFinish }: { product: Product; i
                     {rx.file.type.startsWith('image/') ? <img src={rx.url} alt="Your prescription" /> : <Icon name="file" />}
                   </div>
                   <div><b>{rx.file.name}</b><span>{(rx.file.size / 1024 / 1024).toFixed(2)} MB, ready to send</span></div>
-                  <button className="btn btn--sm btn--ghost" type="button" disabled={busy} onClick={() => setRx(null)}>Replace</button>
+                  <button className="btn btn--sm btn--ghost" type="button" disabled={!!busy} onClick={() => setRx(null)}>Replace</button>
                 </div>
               ) : (
                 <label
@@ -303,9 +321,16 @@ export function ProductView({ product: p, initialFinish }: { product: Product; i
             <span className="tnum">{lp === null ? 'Choose above' : plusMoney(lp)}</span>
           </div>
           <div className="summary__total"><span>Total</span><b className="tnum">{money(p.price + (lp || 0))}</b></div>
-          <button className="btn btn--block" type="button" aria-disabled={!!why || busy} disabled={!!why || busy} onClick={addToBag}>
-            {busy ? 'Uploading your prescription…' : 'Add to bag'}
-          </button>
+          <div className="summary__actions">
+            <button className={cx('btn btn--block', busy === 'now' && 'is-busy')} type="button" aria-disabled={!!why || !!busy} disabled={!!why || !!busy} onClick={placeOrderNow}>
+              {busy === 'now'
+                ? <><Spinner label="Getting your order ready" />{vision === 'rx' && rx ? 'Uploading your prescription…' : 'Opening checkout…'}</>
+                : <>Place order<Icon name="chevRight" /></>}
+            </button>
+            <button className={cx('btn btn--block btn--ghost', busy === 'bag' && 'is-busy')} type="button" aria-disabled={!!why || !!busy} disabled={!!why || !!busy} onClick={addToBag}>
+              {busy === 'bag' ? <><Spinner label="Uploading your prescription" />Uploading your prescription…</> : <><Icon name="bag" />Add to bag</>}
+            </button>
+          </div>
           <p className="summary__why">
             {why || (vision === 'rx' ? 'We check your prescription before your lenses are made.' : 'Ready when you are.')}
           </p>
@@ -337,8 +362,8 @@ export function ProductView({ product: p, initialFinish }: { product: Product; i
           <details>
             <summary>Delivery and returns<Icon name="plus" /></summary>
             <div className="acc__body">
-              <p>Zero-power orders are fitted and sent first. Lenses with eyesight are made after we check your prescription.</p>
-              <p>If the frame does not fit, contact us before the lenses are cut and we will help you choose another.</p>
+              <p>We call you within 24 hours to confirm your order, then deliver it in 3 to 4 days. Lenses with eyesight are made after we check your prescription.</p>
+              <p>Prescription lenses are made to order, so they cannot be returned for a change of mind. If something arrives damaged or incorrect, contact us within 48 hours of delivery. Read the full <Link className="link" href="/return-policy">Return, Exchange &amp; Replacement Policy</Link>.</p>
             </div>
           </details>
           <details>

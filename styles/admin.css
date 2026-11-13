@@ -472,3 +472,53 @@
   .adm-pass button { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); }
   @media (max-width: 860px) { .adm-login { grid-template-columns: minmax(0, 1fr); } .adm-login__art { display: none; } }
 }
+
+/* Reviews and inquiries */
+@layer components {
+  .adm-badge svg { width: 13px; height: 13px; }
+  .is-pending { opacity: .6; transition: opacity .2s; }
+
+  /* ---------- reviews ---------- */
+  .adm-reviews { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); gap: 18px; align-items: start; }
+  .adm-review { display: grid; overflow: hidden; }
+  .adm-review.is-new { box-shadow: inset 3px 0 0 #f59e0b; }
+  .adm-review__head { display: flex; align-items: center; gap: 12px; padding: 16px 18px 0; }
+  .adm-review__head b { font-size: .9375rem; }
+  .adm-review__body { display: grid; gap: 10px; padding: 14px 18px 16px; }
+  .adm-review__body p { font-size: .9375rem; line-height: 1.6; color: var(--a-ink-2); white-space: pre-line; overflow-wrap: anywhere; }
+  .adm-review__stars svg { width: 20px; height: 20px; }
+  .adm-review__video { width: 100%; max-height: 360px; border-radius: 12px; background: #000; }
+  .adm-review__place { display: grid; gap: 14px; padding: 14px 18px; border-top: 1px solid var(--a-line); background: #fcfcfc; }
+  .adm-review__foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px 10px 18px; border-top: 1px solid var(--a-line); }
+  .adm-review__foot > span { display: inline-flex; align-items: center; gap: 6px; }
+  .adm-review__foot > span svg { width: 16px; height: 16px; }
+  .adm-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .adm-chip { display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 4px 0 12px; border-radius: 999px; background: var(--a-ink); color: #fff; font-size: .8125rem; font-weight: 600; }
+  .adm-chip button { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; color: rgba(255, 255, 255, .75); }
+  .adm-chip button:hover { background: rgba(255, 255, 255, .18); color: #fff; }
+  .adm-chip button svg { width: 13px; height: 13px; }
+  .adm-pick-list { display: grid; gap: 6px; }
+  .adm-pick-list--scroll { max-height: min(46vh, 420px); overflow-y: auto; padding-right: 2px; }
+  .adm-pick { display: grid; grid-template-columns: 64px minmax(0, 1fr) 26px; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 12px; border: 1px solid var(--a-line); cursor: pointer; transition: border-color .15s, background .15s; }
+  .adm-pick:hover { border-color: var(--a-line-2); background: var(--a-hover); }
+  .adm-pick.on { border-color: var(--a-ink); background: #fafafa; }
+  .adm-pick input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .adm-pick:has(input:focus-visible) { outline: 2px solid var(--a-ink); outline-offset: 2px; }
+  .adm-pick__tick { width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid var(--a-line-2); display: grid; place-items: center; color: transparent; }
+  .adm-pick__tick svg { width: 14px; height: 14px; }
+  .adm-pick.on .adm-pick__tick { background: var(--a-ink); border-color: var(--a-ink); color: #fff; }
+  .adm-pick .adm-thumb svg { width: 22px; height: 22px; color: var(--a-ink-3); }
+
+  /* ---------- inquiries ---------- */
+  .adm-inquiries { display: grid; gap: 14px; }
+  .adm-inquiry { display: grid; overflow: hidden; }
+  .adm-inquiry.is-new { box-shadow: inset 3px 0 0 #f59e0b; }
+  .adm-inquiry__head { display: flex; align-items: center; gap: 12px; padding: 16px 20px 0; }
+  .adm-inquiry__head b { font-size: .9375rem; }
+  .adm-inquiry__msg { padding: 12px 20px 16px; font-size: .9375rem; line-height: 1.65; color: var(--a-ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .adm-inquiry__foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 14px 12px 20px; border-top: 1px solid var(--a-line); background: #fcfcfc; }
+  @media (max-width: 560px) {
+    .adm-review__head, .adm-inquiry__head { flex-wrap: wrap; }
+    .adm-review__head > span:last-child, .adm-inquiry__head > span:last-child { margin-left: 52px; text-align: left; }
+  }
+}

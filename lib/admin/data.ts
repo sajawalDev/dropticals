@@ -6,7 +6,10 @@ import {
 } from '@/lib/catalog-build';
 import { adminDb, RX_BUCKET } from '@/lib/supabase/server';
 import { dbMessage } from './guard';
-import { isOrderStatus, type OrderItemRow, type OrderRow, type OrderStatus, type Stats } from './types';
+import {
+  isInquiryStatus, isOrderStatus,
+  type InboxCounts, type InquiryRow, type InquiryStatus, type OrderItemRow, type OrderRow, type OrderStatus, type ReviewRow, type Stats,
+} from './types';
 
 /* Reads for the dashboard. Service key, never cached. */
 
@@ -141,6 +144,66 @@ export async function getAdminAnnouncements(): Promise<AnnouncementRow[]> {
     .order('sort_order')
     .order('created_at');
   return check<AnnouncementRow[]>(res, 'announcement');
+}
+
+/**
+ * Every review, newest first, with the products in the order each one came from
+ * (so the dashboard can suggest where to show it). `ready` is false until the
+ * reviews table exists (supabase/schema.sql has not been run again since it was added).
+ */
+export async function getReviews(): Promise<{ rows: ReviewRow[]; ready: boolean; ordered: Record<string, string[]> }> {
+  const db = adminDb();
+  const res = await db.from('reviews').select('*').order('created_at', { ascending: false }).limit(500);
+  if (res.error) {
+    if (isMissingTable(res.error)) return { rows: [], ready: false, ordered: {} };
+    throw new DataError(dbMessage(res.error, 'review'));
+  }
+  const rows = (res.data ?? []) as ReviewRow[];
+  const nos = [...new Set(rows.map(r => r.order_no).filter(Boolean))];
+  const ordered: Record<string, string[]> = {};
+  if (nos.length) {
+    const orders = await db.from('orders').select('id, order_no').in('order_no', nos);
+    const byId = new Map((orders.data ?? []).map(o => [o.id as string, o.order_no as string]));
+    if (byId.size) {
+      const items = await db.from('order_items').select('order_id, product_id').in('order_id', [...byId.keys()]);
+      for (const it of items.data ?? []) {
+        const no = byId.get(it.order_id as string), pid = it.product_id as string | null;
+        if (!no || !pid) continue;
+        const list = (ordered[no] ??= []);
+        if (!list.includes(pid)) list.push(pid);
+      }
+    }
+  }
+  return { rows, ready: true, ordered };
+}
+
+/** Contact-form messages, newest first. `ready` is false until the inquiries table exists. */
+export async function getInquiries(status?: string): Promise<{ rows: InquiryRow[]; ready: boolean; counts: Record<InquiryStatus | 'all', number> }> {
+  const db = adminDb();
+  let query = db.from('inquiries').select('*').order('created_at', { ascending: false }).limit(300);
+  if (isInquiryStatus(status)) query = query.eq('status', status);
+  const [res, all, fresh] = await Promise.all([
+    query,
+    db.from('inquiries').select('id', { count: 'exact', head: true }),
+    db.from('inquiries').select('id', { count: 'exact', head: true }).eq('status', 'new' satisfies InquiryStatus),
+  ]);
+  if (res.error) {
+    if (isMissingTable(res.error)) return { rows: [], ready: false, counts: { all: 0, new: 0, replied: 0 } };
+    throw new DataError(dbMessage(res.error, 'message'));
+  }
+  const total = all.count ?? 0, unread = fresh.count ?? 0;
+  return { rows: (res.data ?? []) as InquiryRow[], ready: true, counts: { all: total, new: unread, replied: Math.max(0, total - unread) } };
+}
+
+/** Badges for the sidebar: pending orders, new messages and unseen reviews. Missing tables count as zero. */
+export async function getInboxCounts(): Promise<InboxCounts> {
+  const db = adminDb();
+  const [pending, inquiries, reviews] = await Promise.all([
+    getPendingCount(),
+    db.from('inquiries').select('id', { count: 'exact', head: true }).eq('status', 'new'),
+    db.from('reviews').select('id', { count: 'exact', head: true }).eq('is_read', false),
+  ]);
+  return { pending, inquiries: inquiries.error ? 0 : inquiries.count ?? 0, reviews: reviews.error ? 0 : reviews.count ?? 0 };
 }
 
 /** The private channel the database broadcasts order changes on. */

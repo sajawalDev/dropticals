@@ -20,6 +20,30 @@
   .item__price { font-weight: 600; font-size: .9375rem; white-space: nowrap; }
   .item__meta { font-size: .8125rem; color: var(--ink-3); margin-top: -6px; }
   .item__foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+
+  /* Card actions: Frame My Face first and strongest, Buy now beside it (or under it on narrow cards). */
+  .item__body { container-type: inline-size; display: flex; flex-direction: column; grid-row: 3; }
+  .item__cta { display: flex; flex-direction: column; gap: 8px; margin-top: auto; padding-top: 6px; }
+  .item__cta .item__try { width: 100%; justify-content: center; height: 46px; padding: 0 18px 0 6px; }
+  .item__buy {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 42px;
+    border-radius: 999px; border: 1.5px solid var(--line-2); background: var(--white); color: var(--black);
+    font: 600 .8125rem/1 var(--sans); letter-spacing: .01em; white-space: nowrap;
+    transition: border-color .2s var(--ease), background .25s var(--ease), color .25s var(--ease), transform .2s var(--ease);
+  }
+  .item__buy svg { width: 16px; height: 16px; flex: none; }
+  .item__buy:hover { border-color: var(--black); background: var(--black); color: var(--white); }
+  .item__buy:active { transform: scale(.98); }
+  @container (min-width: 330px) {
+    .item__cta { flex-direction: row; }
+    .item__cta .item__try { flex: 1.35 1 0; width: auto; }
+    .item__buy { flex: 1 1 0; width: auto; height: 46px; }
+  }
+  @container (max-width: 220px) {
+    .item__cta .item__try { height: 42px; font-size: .8125rem; padding-right: 10px; gap: 8px; }
+    .item__cta .item__try .fmf__icon { width: 30px; height: 30px; }
+    .item__buy { height: 40px; }
+  }
   .swatches { display: flex; gap: 8px; }
   .sw {
     width: 20px; height: 20px; border-radius: 50%; background: var(--sw); position: relative;
@@ -65,8 +89,6 @@
     .item__name { font-size: 1.375rem; }
     .item__row { flex-direction: column; gap: 2px; }
     .item__meta { margin-top: 0; }
-    .item__foot .fmf { width: 100%; justify-content: flex-start; height: 42px; font-size: .8125rem; padding-right: 12px; }
-    .item__foot .fmf__icon { width: 30px; height: 30px; }
     .card-photos { border-radius: 14px; }
     .card-photos__dots { bottom: 8px; gap: 4px; }
     .card-photos__dots i { width: 5px; height: 5px; }

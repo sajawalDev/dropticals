@@ -6,6 +6,7 @@ import { cx, reveal } from '@/lib/css';
 import { CardPhotos } from './CardPhotos';
 import { FmfButton } from './FmfButton';
 import { FrameSvg, frameLabel } from './FrameSvg';
+import { Icon } from './Icon';
 import { Link } from './Link';
 import { Swatches } from './Swatches';
 
@@ -41,9 +42,17 @@ export function ProductItem({ product: p, index, initialFinish }: { product: Pro
         <div className="item__meta">
           {[p.labels.shape, GENDER_LABEL[p.gender].toLowerCase(), p.labels.materialShort].filter(Boolean).join(', ')}
         </div>
-        <div className="item__foot">
-          <Swatches product={p} active={finish} onPick={pick} />
-          <FmfButton productId={p.id} finish={finish} />
+        {p.finishes.length > 0 && (
+          <div className="item__foot">
+            <Swatches product={p} active={finish} onPick={pick} />
+          </div>
+        )}
+        {/* Trying it on comes first; buying is the quieter second step. */}
+        <div className="item__cta">
+          <FmfButton productId={p.id} finish={finish} className="item__try" />
+          <Link className="item__buy" href={href} aria-label={`${p.inStock ? 'Buy' : 'View'} ${p.name}`}>
+            {p.inStock ? <><Icon name="bag" />Buy now</> : 'View frame'}
+          </Link>
         </div>
       </div>
     </article>
